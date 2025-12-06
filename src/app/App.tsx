@@ -25,7 +25,7 @@ export default function App() {
             <AdaptiveDpr pixelated />
 
             <CameraControls makeDefault />
-            <BasicMesh />
+            {/* <BasicMesh /> */}
             <Grass />
             <CanvasCapture />
         </Canvas>
