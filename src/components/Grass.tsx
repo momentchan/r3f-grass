@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three'
 import { useControls } from 'leva'
+import CustomShaderMaterial from 'three-custom-shader-material'
 import utility from '@packages/r3f-gist/shaders/cginc/math/utility.glsl'
 
 
@@ -28,8 +29,8 @@ const grassVertex = /* glsl */ `
   varying float vType;
   varying float vPresence;
   varying float vClumpRandom;
-
-  varying vec3 vNormal;
+  varying vec3 vTest;
+  
   // Hash functions for per-blade variation
   float hash11(float x) {
     return fract(sin(x * 37.0) * 43758.5453123);
@@ -129,7 +130,7 @@ const grassVertex = /* glsl */ `
     gp.bend = clumpParams.z * mix(0.8, 1.2, h2.x);
 
     // Tip thinness: per-blade variation
-    gp.tipThin = mix(1.0, 2.5, h2.y);
+    gp.tipThin = mix(0.5, 1.5, h2.y);
 
     // Use clump type (same type within clump)
     gp.type = clumpParams.w;
@@ -179,51 +180,48 @@ const grassVertex = /* glsl */ `
   }
 
   void main() {
-    float t = uv.y;
-    float s = (uv.x - 0.5) * 2.0; // -1 to 1
+    // ============================================
+    // 1. UV and Basic Setup
+    // ============================================
+    float t = uv.y;                    // Height along blade (0 = root, 1 = tip)
+    float s = (uv.x - 0.5);     // Width across blade (-1 to 1)
+    vec2 worldXZ = instanceOffset.xz;  // World XZ position
 
-    // Get world position
-    vec2 worldXZ = instanceOffset.xz;
-
-    // Calculate Voronoi clump information
+    // ============================================
+    // 2. Voronoi Clump Calculation
+    // ============================================
     vec3 clumpInfo = getClumpInfo(worldXZ);
     float distToCenter = clumpInfo.x;
     vec2 cellId = clumpInfo.yz;
-
-    // Get clump center world position
+    
+    // Get clump center and direction
     vec2 clumpCenterWorld = getClumpCenterWorld(cellId);
     vec2 dir = clumpCenterWorld - worldXZ;
     float len = length(dir);
     vec2 toCenter = len > 1e-5 ? dir / len : vec2(1.0, 0.0);
-
-    // Clump profile: 0 = center, 1 = edge
+    
+    // Clump profile factors
     float r = clamp(distToCenter / clumpRadius, 0.0, 1.0);
-    
-    // Height factor: center high, edge low
-    float heightFactor = mix(1.3, 0.3, r);
-    
-    // Presence: center dense (1.0), edge sparse (0.0)
-    float presence = 1.0 - smoothstep(0.7, 1.0, r);
+    float heightFactor = mix(1.3, 0.3, r);  // Center high, edge low
+    float presence = 1.0 - smoothstep(0.7, 1.0, r);  // Center dense, edge sparse
 
-    // Get clump-level parameters (per cell)
+    // ============================================
+    // 3. Grass Parameters (Clump + Per-Blade)
+    // ============================================
     vec4 clumpParams = getClumpParams(cellId);
-
-    // Calculate clump random for tint variation (per clump)
     float clumpRandom = hash11(dot(cellId, vec2(47.0, 61.0)));
-
-    // Get per-blade parameters within clump
+    
     vec2 seed = worldXZ;
     GrassParams gp = getGrassParams(seed, clumpParams);
-
-    // Apply clump height factor and presence
-    gp.height *= heightFactor;
-
-    // Use per-blade parameters
+    gp.height *= heightFactor;  // Apply clump height factor
+    
     float height = gp.height;
     float width = gp.width;
     float bend = gp.bend;
 
-    // Bezier control points using per-blade height and bend
+    // ============================================
+    // 4. Bezier Curve Shape Generation
+    // ============================================
     vec3 p0 = vec3(0.0, 0.0, 0.0);
     vec3 p2 = vec3(0.0, height, 0.0);
     
@@ -243,48 +241,57 @@ const grassVertex = /* glsl */ `
     vec3 spine = bezier2(p0, p1, p2, t);
     vec3 tangent = normalize(bezier2Tangent(p0, p1, p2, t));
 
-    vec3 ref = vec3(1.0, 0.0, 0.0);
-
-    if(abs(dot(tangent, ref)) > 0.95) {
-      ref = vec3(0.0, 0.0, 1.0);
-    }
-
-    vec3 normal = normalize(cross(tangent, ref));
-    vec3 side = normalize(cross(normal, tangent));
-    
-    // Width profile with tipThin variation
+    // ============================================
+    // 5. TBN Frame Construction (UE-style Derive Normals)
+    // ============================================
+    vec3 ref = vec3(0.0, 0.0, 1.0);
+    vec3 side = normalize(cross(ref, tangent));
+    vec3 normal = normalize(cross(side, tangent));
+    // ============================================
+    // 6. Blade Geometry (Width Profile)
+    // ============================================
     float widthFactor = (t + gp.baseWidth) * pow(1.0 - t, gp.tipThin);
     vec3 lpos = spine + side * width * widthFactor * s;
     
+    // ============================================
+    // 7. Clump-Based Rotation (Optional)
+    // ============================================
     // Clump-based rotation: grass blades oriented toward/away from clump center
-    vec2 clumpDir = toCenter; // Toward center (use -toCenter for outward)
+    vec2 clumpDir = toCenter;
     float clumpAngle = atan(clumpDir.y, clumpDir.x);
-    
-    // Add small random offset per blade
     float perBladeHash = hash11(dot(seed, vec2(37.0, 17.0)));
-    float randomOffset = (perBladeHash - 0.5) * 0.6; // -0.3 ~ +0.3 rad
-    
+    float randomOffset = (perBladeHash - 0.5) * 0.6;
     float angle = clumpAngle + randomOffset;
+    
+    // Rotate blade position and TBN frame around Y axis
     lpos.xz = rotate2D(lpos.xz, angle);
+    normal.xz = rotate2D(normal.xz, angle);
     
-    // Apply presence to scale down grass at edges (density control)
-    lpos.xz *= presence;
-    
+    // ============================================
+    // 8. Presence and World Position
+    // ============================================
+    lpos.xz *= presence;  // Scale down at edges for density control
     vec3 worldPos = lpos + instanceOffset;
-    
-    
-    // ---- Ghost-style Lighting Normal ----
-    // Geometric normal (already calculated as: normalize(cross(tangent, ref)))
-    vec3 lightingNormal = computeLightingNormal(normal, toCenter, t, worldPos);
-    // ---- Lighting Normal end ----
-    
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
 
+    // ============================================
+    // 9. Lighting Normal (Ghost-style)
+    // ============================================
+    vec3 lightingNormal = computeLightingNormal(normal, toCenter, t, worldPos);
+
+    // ============================================
+    // 10. CSM Output
+    // ============================================
+    csm_Position = worldPos;
+    csm_Normal = lightingNormal;
+
+    // ============================================
+    // 11. Varyings
+    // ============================================
+    vTest = normal; // Debug: show geometric normal as color
     vUv = uv;
     vHeight = t;
     vType = gp.type;
     vPresence = presence;
-    vNormal = lightingNormal;
     vClumpRandom = clumpRandom;
   }
 `;
@@ -295,8 +302,8 @@ const grassFragment = /* glsl */ `
   varying vec2 vUv;
   varying float vPresence;
   varying float vClumpRandom;
+  varying vec3 vTest;
 
-  varying vec3 vNormal;
   void main() {
     // 1. Height gradient
     vec3 baseColor = vec3(0.18, 0.35, 0.12);
@@ -313,8 +320,8 @@ const grassFragment = /* glsl */ `
 
     // 4. Edge density fade
     color *= vPresence;
-
-    gl_FragColor = vec4(color, 1.0);
+    
+    // csm_FragColor = vec4(vTest, 1.0);
   }
 `;
 
@@ -370,7 +377,7 @@ export default function Grass() {
     const { bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius } = useControls('Grass', {
         bladeHeight: { value: BLADE_HEIGHT, min: 0.1, max: 2.0, step: 0.1 },
         bladeWidth: { value: BLADE_WIDTH, min: 0.01, max: 0.1, step: 0.01 },
-        bendAmount: { value: 0.4, min: 0.0, max: 1.0, step: 0.1 },
+        bendAmount: { value: 0.4, min: 0.0, max: 10.0, step: 0.1 },
         clumpSize: { value: 0.8, min: 0.1, max: 5.0, step: 0.1 },
         clumpRadius: { value: 1.5, min: 0.3, max: 2.0, step: 0.1 },
     })
@@ -395,11 +402,11 @@ export default function Grass() {
         <instancedMesh
             args={[geometry, undefined as any, GRASS_BLADES]}
             geometry={geometry}
-            key={Math.random()}
         >
-            <shaderMaterial
-                fragmentShader={grassFragment}
+            <CustomShaderMaterial
+                baseMaterial={THREE.MeshStandardMaterial}
                 vertexShader={grassVertex}
+                fragmentShader={grassFragment}
                 uniforms={uniforms}
                 side={THREE.DoubleSide}
             />
