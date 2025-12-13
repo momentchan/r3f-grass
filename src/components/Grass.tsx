@@ -30,6 +30,11 @@ const grassVertex = /* glsl */ `
   varying float vPresence;
   varying float vClumpRandom;
   varying vec3 vTest;
+  varying vec3 vN;
+  varying vec3 vTangent;
+  varying vec3 vSide;
+  varying vec2 vToCenter;
+  varying vec3 vWorldPos;
   
   // Hash functions for per-blade variation
   float hash11(float x) {
@@ -184,7 +189,7 @@ const grassVertex = /* glsl */ `
     // 1. UV and Basic Setup
     // ============================================
     float t = uv.y;                    // Height along blade (0 = root, 1 = tip)
-    float s = (uv.x - 0.5);     // Width across blade (-1 to 1)
+    float s = (uv.x - 0.5) * 2.0;     // Width across blade (-1 to 1)
     vec2 worldXZ = instanceOffset.xz;  // World XZ position
 
     // ============================================
@@ -271,22 +276,23 @@ const grassVertex = /* glsl */ `
     // 8. Presence and World Position
     // ============================================
     lpos.xz *= presence;  // Scale down at edges for density control
+
     vec3 worldPos = lpos + instanceOffset;
 
     // ============================================
-    // 9. Lighting Normal (Ghost-style)
-    // ============================================
-    vec3 lightingNormal = computeLightingNormal(normal, toCenter, t, worldPos);
-
-    // ============================================
-    // 10. CSM Output
+    // 9. CSM Output
     // ============================================
     csm_Position = worldPos;
-    csm_Normal = lightingNormal;
+    // Normal will be computed in fragment shader using csm_FragNormal
 
     // ============================================
-    // 11. Varyings
+    // 10. Varyings
     // ============================================
+    vN = -normal;
+    vTangent = tangent;
+    vSide = side;
+    vToCenter = toCenter;
+    vWorldPos = worldPos;
     vTest = normal; // Debug: show geometric normal as color
     vUv = uv;
     vHeight = t;
@@ -303,8 +309,87 @@ const grassFragment = /* glsl */ `
   varying float vPresence;
   varying float vClumpRandom;
   varying vec3 vTest;
+  varying vec3 vN;
+  varying vec3 vTangent;
+  varying vec3 vSide;
+  varying vec2 vToCenter;
+  varying vec3 vWorldPos;
+
+  // Compute lighting normal (Ghost-style)
+  vec3 computeLightingNormal(
+    vec3 geoNormal,
+    vec2 toCenter,
+    float t,
+    vec3 worldPos
+  ) {
+    // Step 1: Clump normal (2.5D, represents clump volume)
+    vec3 clumpNormal = normalize(vec3(toCenter.x, 0.7, toCenter.y));
+    
+    // Step 2: Height weight (base closer to clump normal)
+    float heightMask = pow(1.0 - t, 0.7);
+    
+    // Step 3: Distance weight (farther = more fake normal)
+    float dist = length(cameraPosition - worldPos);
+    float distMask = smoothstep(4.0, 12.0, dist);
+    
+    // Step 4: Combine lighting normal
+    return normalize(
+      mix(
+        geoNormal,
+        clumpNormal,
+        heightMask * distMask
+      )
+    );
+  }
 
   void main() {
+    // ============================================
+    // 1. TBN Frame Construction
+    // ============================================
+    vec3 T = normalize(vTangent);
+    vec3 S = normalize(vSide);
+    vec3 baseNormal = normalize(vN);
+    
+    // ============================================
+    // 2. Rim + Midrib effect based on UV.x
+    // ============================================
+    float u = vUv.x - 0.5;       // [-0.5, 0.5]
+    float au = abs(u);          // [0, 0.5]
+    
+    // Midrib: center area
+    float midSoft = 0.2;
+    float mid01 = smoothstep(-midSoft, midSoft, u); // 0..1
+    
+    // Rim: edge fold-back (stronger near 0.5)
+    float rimPos = 0.42;
+    float rimSoft = 0.2;
+    float rimMask = smoothstep(rimPos, rimPos + rimSoft, au);
+    
+    // Combine: fold back edges (simplified version)
+    float v01 =  mix(mid01, 1.0 - mid01, rimMask);
+    
+    // Remap -> [-1, 1]
+    float ny = v01 * 2.0 - 1.0;
+    
+    // ============================================
+    // 3. Apply Rim + Midrib to Normal
+    // ============================================
+    float widthNormalStrength = 0.35;
+    vec3 geoNormal = normalize(baseNormal + S * ny * widthNormalStrength);
+    
+    // ============================================
+    // 4. Compute Lighting Normal (Ghost-style)
+    // ============================================
+    vec3 lightingNormal = computeLightingNormal(geoNormal, vToCenter, vHeight, vWorldPos);
+    
+    // ============================================
+    // 5. Set CSM Fragment Normal
+    // ============================================
+    csm_FragNormal = lightingNormal;
+    
+    // ============================================
+    // 6. Color Output
+    // ============================================
     // 1. Height gradient
     vec3 baseColor = vec3(0.18, 0.35, 0.12);
     vec3 tipColor = vec3(0.35, 0.65, 0.28);
@@ -320,8 +405,9 @@ const grassFragment = /* glsl */ `
 
     // 4. Edge density fade
     color *= vPresence;
-    
-    // csm_FragColor = vec4(vTest, 1.0);
+
+    // csm_FragColor = vec4(color, 1.0);
+    // csm_FragColor = vec4(vTest, 1.0); // Debug: show normal as color
   }
 `;
 
