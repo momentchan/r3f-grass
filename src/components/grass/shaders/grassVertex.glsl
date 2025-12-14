@@ -45,13 +45,15 @@ float hash11(float x) {
 // ============================================================================
 // Bezier Curve Functions
 // ============================================================================
-vec3 bezier2(vec3 p0, vec3 p1, vec3 p2, float t) {
+// Cubic Bezier (4 control points) - matches Ghost implementation
+vec3 bezier3(vec3 p0, vec3 p1, vec3 p2, vec3 p3, float t) {
   float u = 1.0 - t;
-  return u*u*p0 + 2.0*u*t*p1 + t*t*p2;
+  return u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3;
 }
 
-vec3 bezier2Tangent(vec3 p0, vec3 p1, vec3 p2, float t) {
-  return 2.0*(1.0 - t)*(p1 - p0) + 2.0*t*(p2 - p1);
+vec3 bezier3Tangent(vec3 p0, vec3 p1, vec3 p2, vec3 p3, float t) {
+  float u = 1.0 - t;
+  return 3.0*u*u*(p1-p0) + 6.0*u*t*(p2-p1) + 3.0*t*t*(p3-p2);
 }
 
 // ============================================================================
@@ -103,37 +105,46 @@ void main() {
   // Horizontal perpendicular (left/right) - this is the direction wind pushes
   vec2 perpXZ = vec2(-facingXZ.y, facingXZ.x);
   
-  // 4. Bezier Curve Shape Generation
+  // 4. Cubic Bezier Curve Shape Generation (4 control points - matches Ghost)
+  // p0 = base (root, fixed)
   vec3 p0 = vec3(0.0, 0.0, 0.0);
-  vec3 p2 = vec3(0.0, height, 0.0);
+  // p3 = tip (top of blade)
+  vec3 p3 = vec3(0.0, height, 0.0);
   
-  vec3 p1;
+  // p1, p2 = mid control points (control bend and wind response)
+  vec3 p1, p2;
   if (bladeType < 0.5) {
-    p1 = vec3(0.0, height * 0.9, bend * 0.7);
+    p1 = vec3(0.0, height * 0.4, bend * 0.5);  // Lower mid control point
+    p2 = vec3(0.0, height * 0.75, bend * 0.7); // Upper mid control point
   } else if (bladeType < 1.5) {
-    p1 = vec3(0.0, height * 0.85, bend * 0.8);
+    p1 = vec3(0.0, height * 0.35, bend * 0.6);
+    p2 = vec3(0.0, height * 0.7, bend * 0.8);
   } else {
-    p1 = vec3(0.0, height * 0.8, bend * 1.0);
+    p1 = vec3(0.0, height * 0.3, bend * 0.7);
+    p2 = vec3(0.0, height * 0.65, bend * 1.0);
   }
   
   // Wind push along blade perpendicular direction (consistent with facing)
+  // Ghost-style: root stable (p0), mid moderate (p1, p2), tip strongest (p3)
   float tipPush = windS * height * 0.35;
-  float midPush = windS * height * 0.15;
+  float midPush1 = windS * height * 0.1;  // Lower mid push
+  float midPush2 = windS * height * 0.2; // Upper mid push
   
-  p1 += vec3(perpXZ.x, 0.0, perpXZ.y) * midPush;
-  p2 += vec3(perpXZ.x, 0.0, perpXZ.y) * tipPush;
+  p1 += vec3(perpXZ.x, 0.0, perpXZ.y) * midPush1;
+  p2 += vec3(perpXZ.x, 0.0, perpXZ.y) * midPush2;
+  p3 += vec3(perpXZ.x, 0.0, perpXZ.y) * tipPush;
   
   // Bobbing phase (high frequency sway) - use perBladeHash01 from compute shader for coherence
   float phase = perBladeHash01 * 6.28318; // Use compute-generated hash (already in [0, 1])
   float sway = sin(uTime * (1.8 + wind * 1.2) + phase + t * 2.2);
   float swayAmt = uWindStrength * 0.02 * height * wind;
   
-  // Apply bobbing sway along perpendicular direction
-  p2 += vec3(perpXZ.x, 0.0, perpXZ.y) * (sway * swayAmt);
+  // Apply bobbing sway along perpendicular direction (tip-weighted)
+  p3 += vec3(perpXZ.x, 0.0, perpXZ.y) * (sway * swayAmt);
   
-  // Recalculate spine and tangent after all wind effects
-  vec3 spine = bezier2(p0, p1, p2, t);
-  vec3 tangent = normalize(bezier2Tangent(p0, p1, p2, t));
+  // Recalculate spine and tangent after all wind effects using cubic bezier
+  vec3 spine = bezier3(p0, p1, p2, p3, t);
+  vec3 tangent = normalize(bezier3Tangent(p0, p1, p2, p3, t));
 
   // 5. TBN Frame Construction (UE-style Derive Normals)
   vec3 ref = vec3(0.0, 0.0, 1.0);
