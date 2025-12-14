@@ -43,15 +43,6 @@ export default function Grass() {
 
     const geometry = useMemo(() => createGrassGeometry(), [])
 
-    // Use grass compute hook for Multiple Render Targets
-    const { bladeParamsRT, clumpDataRT, compute } = useGrassCompute(
-        bladeHeight,
-        bladeWidth,
-        bendAmount,
-        clumpSize,
-        clumpRadius
-    )
-
     const materialRef = useRef<any>(null)
 
     const materialControls = useControls('Material', {
@@ -72,6 +63,18 @@ export default function Grass() {
 
     const emissiveColor = useMemo(() => new THREE.Color(materialControls.emissive as any), [materialControls.emissive])
 
+    // Use grass compute hook for Multiple Render Targets (before uniforms definition)
+    const { bladeParamsRT, clumpDataRT, additionalDataRT, computeMaterial, compute } = useGrassCompute(
+        bladeHeight,
+        bladeWidth,
+        bendAmount,
+        clumpSize,
+        clumpRadius,
+        0.0, // uTime initial value
+        wind.scale,
+        wind.speed
+    )
+
     const uniforms = useRef({
         thicknessStrength: { value: 0.02 },
         baseColor: { value: new THREE.Vector3(0.18, 0.35, 0.12) },
@@ -79,20 +82,19 @@ export default function Grass() {
         // Multiple render target textures
         uBladeParamsTexture: { value: bladeParamsRT.texture },
         uClumpDataTexture: { value: clumpDataRT.texture },
+        uMotionSeedsTexture: { value: additionalDataRT.texture },
         uGrassTextureSize: { value: new THREE.Vector2(GRID_SIZE, GRID_SIZE) },
         // Wind uniforms
         uTime: { value: 0 },
-        uWindDir: { value: new THREE.Vector2(1, 0) },
-        uWindSpeed: { value: 0.6 },
-        uWindStrength: { value: 0.35 },
-        uWindScale: { value: 0.25 },
+        uWindStrength: { value: 0.35 }, // Still needed for scaling wind effects in vertex shader
     }).current
 
     // Update texture uniforms when render targets change
     useEffect(() => {
         uniforms.uBladeParamsTexture.value = bladeParamsRT.texture
         uniforms.uClumpDataTexture.value = clumpDataRT.texture
-    }, [bladeParamsRT.texture, clumpDataRT.texture, uniforms])
+        uniforms.uMotionSeedsTexture.value = additionalDataRT.texture
+    }, [bladeParamsRT.texture, clumpDataRT.texture, additionalDataRT.texture, uniforms])
 
     // Create depth material for directional/spot light shadows
     const depthMat = useMemo(() => {
@@ -122,19 +124,24 @@ export default function Grass() {
         uniforms.tipColor.value.set(tipColorVec.r, tipColorVec.g, tipColorVec.b)
         
         // Update wind uniforms
-        const windDir = new THREE.Vector2(wind.dirX, wind.dirZ).normalize()
-        uniforms.uWindDir.value.set(windDir.x, windDir.y)
-        uniforms.uWindSpeed.value = wind.speed
+        // Note: uWindDir, uWindSpeed, uWindScale are no longer used in vertex shader
+        // Wind direction is handled by facingAngle01 from compute shader
+        // Wind speed/scale are only used in compute shader for wind field sampling
         uniforms.uWindStrength.value = wind.strength
-        uniforms.uWindScale.value = wind.scale
+        
+        // Update compute shader wind uniforms
+        computeMaterial.uniforms.uWindScale.value = wind.scale
+        computeMaterial.uniforms.uWindSpeed.value = wind.speed
         
         // Trigger shadow material to recompile when uniforms change
         depthMat.needsUpdate = true
-    }, [thicknessStrength, baseColor, tipColor, wind, depthMat])
+    }, [thicknessStrength, baseColor, tipColor, wind, depthMat, computeMaterial])
 
     // Update time every frame and execute compute pass
     useFrame((state) => {
         uniforms.uTime.value = state.clock.elapsedTime
+        // Update compute shader time uniform for wind field sampling
+        computeMaterial.uniforms.uTime.value = state.clock.elapsedTime
         compute() // Execute compute pass (single pass, multiple outputs)
     })
 

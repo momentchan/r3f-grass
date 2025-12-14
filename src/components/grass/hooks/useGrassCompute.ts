@@ -7,13 +7,17 @@ import * as THREE from 'three'
 import { createPositionTexture } from '../utils'
 import { GRID_SIZE } from '../constants'
 import grassComputeShader from '../shaders/grassComputeShader.glsl?raw'
+import fractal from '@packages/r3f-gist/shaders/cginc/noise/fractal.glsl'
 
 export function useGrassCompute(
     bladeHeight: number,
     bladeWidth: number,
     bendAmount: number,
     clumpSize: number,
-    clumpRadius: number
+    clumpRadius: number,
+    uTime: number,
+    uWindScale: number,
+    uWindSpeed: number
 ) {
     const gl = useThree((state) => state.gl)
     
@@ -23,7 +27,7 @@ export function useGrassCompute(
     // Create multiple render targets for compute pass (single pass, multiple outputs)
     const mrt = useMemo(() => {
         const renderTarget = new THREE.WebGLRenderTarget(GRID_SIZE, GRID_SIZE, {
-            count: 2, // Multiple render targets
+            count: 3, // Multiple render targets: bladeParams, clumpData, additionalData
             minFilter: THREE.NearestFilter,
             magFilter: THREE.NearestFilter,
             format: THREE.RGBAFormat,
@@ -35,6 +39,7 @@ export function useGrassCompute(
     
     const bladeParamsRT = useMemo(() => ({ texture: mrt.textures[0] }), [mrt])
     const clumpDataRT = useMemo(() => ({ texture: mrt.textures[1] }), [mrt])
+    const additionalDataRT = useMemo(() => ({ texture: mrt.textures[2] }), [mrt])
 
     // Create compute material for Multiple Render Targets
     const grassComputeMat = useMemo(() => new THREE.ShaderMaterial({
@@ -44,7 +49,10 @@ export function useGrassCompute(
                 gl_Position = vec4(position, 1.0);
             }
         `,
-        fragmentShader: grassComputeShader,
+        fragmentShader: /* glsl */ `
+            ${fractal}
+            ${grassComputeShader}
+        `,
         uniforms: {
             uResolution: { value: new THREE.Vector2(GRID_SIZE, GRID_SIZE) },
             uPositions: { value: positionTexture },
@@ -53,8 +61,11 @@ export function useGrassCompute(
             bendAmount: { value: bendAmount },
             clumpSize: { value: clumpSize },
             clumpRadius: { value: clumpRadius },
+            uTime: { value: uTime },
+            uWindScale: { value: uWindScale },
+            uWindSpeed: { value: uWindSpeed },
         }
-    }), [positionTexture, bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius])
+    }), [positionTexture, bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius, uTime, uWindScale, uWindSpeed])
 
     // Create fullscreen quad for compute pass
     const computeScene = useMemo(() => {
@@ -85,11 +96,16 @@ export function useGrassCompute(
         grassComputeMat.uniforms.bendAmount.value = bendAmount
         grassComputeMat.uniforms.clumpSize.value = clumpSize
         grassComputeMat.uniforms.clumpRadius.value = clumpRadius
-    }, [bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius, grassComputeMat])
+        grassComputeMat.uniforms.uTime.value = uTime
+        grassComputeMat.uniforms.uWindScale.value = uWindScale
+        grassComputeMat.uniforms.uWindSpeed.value = uWindSpeed
+    }, [bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius, uTime, uWindScale, uWindSpeed, grassComputeMat])
 
     return {
         bladeParamsRT,
         clumpDataRT,
+        additionalDataRT,
+        computeMaterial: grassComputeMat,
         compute: () => {
             const currentRenderTarget = gl.getRenderTarget()
             gl.setRenderTarget(mrt)

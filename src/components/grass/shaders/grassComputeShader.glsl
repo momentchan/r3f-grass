@@ -5,10 +5,15 @@ uniform float bladeWidth;
 uniform float bendAmount;
 uniform float clumpSize;
 uniform float clumpRadius;
+// Wind uniforms for compute pass
+uniform float uTime;
+uniform float uWindScale;
+uniform float uWindSpeed;
 
 // Multiple render targets output declarations (WebGL2/GLSL ES 3.00)
-layout(location = 0) out vec4 fragColor0; // bladeParams: height, width, bend, type
-layout(location = 1) out vec4 fragColor1; // clumpData: toCenter.x, toCenter.y, presence, baseAngle
+layout(location = 0) out vec4 outBladeParams; // bladeParams: height, width, bend, type
+layout(location = 1) out vec4 outClumpData; // clumpData: toCenter.x, toCenter.y, presence, baseAngle
+layout(location = 2) out vec4 outMotionSeeds; // MotionSeedsRT: facingAngle01, perBladeHash01, windStrength01, lodSeed01
 
 // Hash functions (matching CPU version exactly)
 float hash11(float x) {
@@ -26,6 +31,8 @@ vec2 hash2(vec2 p) {
   float y = dot(p, vec2(269.5, 183.3));
   return fract(sin(vec2(x, y)) * 43758.5453);
 }
+
+// Note: simplexNoise3d and fbm2 are now included from fractal.glsl via useGrassCompute hook
 
 // Voronoi clump calculation (matching CPU version exactly)
 // Returns: distToCenter, cellId.x, cellId.y
@@ -110,12 +117,29 @@ void main() {
   vec2 clumpDir = toCenter;
   float clumpAngle = atan(clumpDir.y, clumpDir.x);
   float perBladeHash = hash11(dot(worldXZ, vec2(37.0, 17.0)));
+  float perBladeHash01 = perBladeHash; // Already in [0, 1] range
   float randomOffset = (perBladeHash - 0.5) * 1.2;
-  float clumpYaw = (hash11(dot(cellId, vec2(9.7, 3.1))) - 0.5) * 0.25;
+  float clumpHash = hash11(dot(cellId, vec2(9.7, 3.1)));
+  float clumpYaw = (clumpHash - 0.5) * 0.25;
   float baseAngle = clumpAngle + randomOffset + clumpYaw;
+  
+  // Calculate facingAngle01: convert baseAngle from [-π, π] to [0, 1]
+  // atan returns [-π, π], normalize to [0, 2π] then to [0, 1]
+  float facingAngle = baseAngle;
+  if (facingAngle < 0.0) {
+    facingAngle += 6.28318530718; // Add 2π if negative
+  }
+  float facingAngle01 = facingAngle / 6.28318530718; // Normalize to [0, 1]
+  
+  // Calculate windStrength01: sample wind field using fbm2 (coherent across pipeline)
+  float windStrength01 = fbm2(worldXZ * uWindScale, uTime * uWindSpeed); // [0, 1] range
+  
+  // Calculate lodSeed01: random seed for LOD culling
+  float lodSeed01 = hash11(dot(worldXZ, vec2(19.3, 53.7)));
 
-  // Multiple render targets: output to both textures in single pass
-  fragColor0 = bladeParams; // height, width, bend, type
-  fragColor1 = vec4(toCenter.x, toCenter.y, presence, baseAngle); // toCenter.x, toCenter.y, presence, baseAngle
+  // Multiple render targets: output to all textures in single pass
+  outBladeParams = bladeParams; // height, width, bend, type
+  outClumpData = vec4(toCenter.x, toCenter.y, presence, baseAngle); // toCenter.x, toCenter.y, presence, baseAngle
+  outMotionSeeds = vec4(facingAngle01, perBladeHash01, windStrength01, lodSeed01); // facingAngle01, perBladeHash01, windStrength01, lodSeed01
 }
 

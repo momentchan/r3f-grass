@@ -6,6 +6,7 @@ attribute vec3 instanceOffset;
 attribute float instanceId; // instance index for texture lookup
 uniform sampler2D uBladeParamsTexture; // FBO texture with blade params
 uniform sampler2D uClumpDataTexture; // FBO texture with clump data
+uniform sampler2D uMotionSeedsTexture; // MotionSeedsRT: facingAngle01, perBladeHash01, windStrength01, lodSeed01
 uniform vec2 uGrassTextureSize; // texture resolution (GRID_SIZE)
 
 #define GRID_SIZE 256.0
@@ -13,12 +14,9 @@ uniform vec2 uGrassTextureSize; // texture resolution (GRID_SIZE)
 
 uniform float thicknessStrength;
 
-// Wind uniforms
+// Wind uniforms (uWindDir and uWindSpeed removed - wind sampling now in compute shader)
 uniform float uTime;
-uniform vec2 uWindDir;
-uniform float uWindSpeed;
-uniform float uWindStrength;
-uniform float uWindScale;
+uniform float uWindStrength; // Still needed for scaling wind effects in vertex shader
 
 // ============================================================================
 // Varyings
@@ -41,11 +39,8 @@ float hash11(float x) {
   return fract(sin(x * 37.0) * 43758.5453123);
 }
 
-// Returns wind scalar [0..1] - simplified version
-float sampleWind(vec2 worldXZ) {
-  float n = fbm2(worldXZ * uWindScale, uTime * uWindSpeed);
-  return n;
-}
+// Note: Wind sampling is now done in compute shader and passed via MotionSeedsRT
+// This ensures coherence across the entire pipeline (compute -> vertex -> fragment)
 
 // ============================================================================
 // Bezier Curve Functions
@@ -68,37 +63,40 @@ void main() {
   float s = (uv.x - 0.5) * 2.0;
   vec2 worldXZ = instanceOffset.xz;
 
-  // 2. Calculate texture coordinates from instance ID
-  float id = instanceId;
-  vec2 texCoord = vec2(
-    mod(id, uGrassTextureSize.x) / uGrassTextureSize.x,
-    floor(id / uGrassTextureSize.x) / uGrassTextureSize.y
-  );
+  // 2. Calculate texture coordinates from instance ID (direct integer conversion)
+  int ix = int(mod(instanceId, uGrassTextureSize.x));
+  int iy = int(floor(instanceId / uGrassTextureSize.x));
+  ivec2 texelCoord = ivec2(ix, iy);
 
   // 3. Read Precomputed Data from FBO textures using texelFetch
-  ivec2 texelCoord = ivec2(floor(texCoord * uGrassTextureSize));
   vec4 bladeParams = texelFetch(uBladeParamsTexture, texelCoord, 0);
   vec4 clumpData = texelFetch(uClumpDataTexture, texelCoord, 0);
+  vec4 motionSeeds = texelFetch(uMotionSeedsTexture, texelCoord, 0);
   
   vec2 toCenter = clumpData.xy;
   float presence = clumpData.z;
-  float baseAngle = clumpData.w;
+  float baseAngle = clumpData.w; // Keep for backward compatibility, but use facingAngle01 instead
+  
+  // Extract MotionSeedsRT data
+  float facingAngle01 = motionSeeds.x; // [0, 1] corresponding to [0, 2π]
+  float perBladeHash01 = motionSeeds.y; // [0, 1] per-blade hash (coherent across frames)
+  float windStrength01 = motionSeeds.z; // [0, 1] wind strength sampled at blade position
+  float lodSeed01 = motionSeeds.w; // [0, 1] LOD culling seed
 
   float height = bladeParams.x;
   float width = bladeParams.y;
   float bend = bladeParams.z;
   float bladeType = bladeParams.w;
 
-  // 3. Wind Field Sampling (simplified - can be optimized further)
-  float wind = sampleWind(worldXZ);
+  // Use windStrength01 from compute shader (coherent across pipeline)
+  float wind = windStrength01; // Already in [0, 1] range from compute shader
   
-  // Simplified wind calculation (can be enhanced later)
+  // Convert windStrength01 to wind scalar [-1, 1] range
   float windS = (wind * 2.0 - 1.0) * uWindStrength;
   
-  // Wind affects blade facing (low frequency)
-  float windAngle = atan(uWindDir.y, uWindDir.x);
-  float windFacing = (wind * 2.0 - 1.0) * 0.35 * uWindStrength;
-  float anglePre = mix(baseAngle, windAngle, 0.25 * uWindStrength) + windFacing;
+  // Use facingAngle01 from compute shader (convert from [0, 1] to radians)
+  float facingAngle = facingAngle01 * 6.28318530718; // Convert [0, 1] to [0, 2π]
+  float anglePre = facingAngle; // Use compute-generated facing angle directly
   
   // Blade facing in XZ (object space)
   vec2 facingXZ = vec2(cos(anglePre), sin(anglePre));
@@ -125,8 +123,8 @@ void main() {
   p1 += vec3(perpXZ.x, 0.0, perpXZ.y) * midPush;
   p2 += vec3(perpXZ.x, 0.0, perpXZ.y) * tipPush;
   
-  // Bobbing phase (high frequency sway) - simplified
-  float phase = hash11(worldXZ.x * 12.3 + worldXZ.y * 78.9) * 6.28318;
+  // Bobbing phase (high frequency sway) - use perBladeHash01 from compute shader for coherence
+  float phase = perBladeHash01 * 6.28318; // Use compute-generated hash (already in [0, 1])
   float sway = sin(uTime * (1.8 + wind * 1.2) + phase + t * 2.2);
   float swayAmt = uWindStrength * 0.02 * height * wind;
   
