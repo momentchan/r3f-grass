@@ -9,9 +9,6 @@ uniform sampler2D uClumpDataTexture; // FBO texture with clump data
 uniform sampler2D uMotionSeedsTexture; // MotionSeedsRT: facingAngle01, perBladeHash01, windStrength01, lodSeed01
 uniform vec2 uGrassTextureSize; // texture resolution (GRID_SIZE)
 
-#define GRID_SIZE 256.0
-#define PATCH_SIZE 8.0
-
 uniform float thicknessStrength;
 
 // Wind uniforms
@@ -88,7 +85,6 @@ void main() {
   
   vec2 toCenter = clumpData.xy;
   float presence = clumpData.z;
-  float baseAngle = clumpData.w; // Keep for backward compatibility, but use facingAngle01 instead
   
   // Extract MotionSeedsRT data
   float facingAngle01 = motionSeeds.x; // [0, 1] corresponding to [0, 2π]
@@ -203,7 +199,7 @@ void main() {
   lpos.xz = rotate2D(lpos.xz, angle);
   tangent.xz = rotate2D(tangent.xz, angle);
   side.xz = rotate2D(side.xz, angle);
-  normal.xz = rotate2D(normal.xz, angle);
+  // normal.xz = rotate2D(normal.xz, angle);
   
   tangent = normalize(tangent);
   side = normalize(side);
@@ -250,7 +246,7 @@ void main() {
   vSide = side;
   vToCenter = toCenter;
   vWorldPos = posWTilted;
-  vTest = vec3(edgeMask, 0.0, 0.0);
+  vTest = vec3(toCenter.x, toCenter.y, 0.0);
   vUv = uv;
   vHeight = t;
   vType = bladeType;

@@ -9,17 +9,29 @@ import { GRID_SIZE } from '../constants'
 import grassComputeShader from '../shaders/grassComputeShader.glsl?raw'
 import fractal from '@packages/r3f-gist/shaders/cginc/noise/fractal.glsl'
 
-export function useGrassCompute(
-    bladeHeight: number,
-    bladeWidth: number,
-    bendAmount: number,
-    clumpSize: number,
-    clumpRadius: number,
-    uTime: number,
-    uWindScale: number,
-    uWindSpeed: number,
+export interface GrassComputeConfig {
+    // Shape parameters
+    bladeHeightMin: number
+    bladeHeightMax: number
+    bladeWidthMin: number
+    bladeWidthMax: number
+    bendAmountMin: number
+    bendAmountMax: number
+    clumpSize: number
+    clumpRadius: number
+    uCenterYaw: number
+    uBladeYaw: number
+    uClumpYaw: number
+    uBladeRandomness: THREE.Vector3 // (height, width, bend) randomness multiplier
+    
+    // Wind parameters
+    uTime: number
+    uWindScale: number
+    uWindSpeed: number
     uWindDir: THREE.Vector2
-) {
+}
+
+export function useGrassCompute(config: GrassComputeConfig) {
     const gl = useThree((state) => state.gl)
     
     // Create position texture
@@ -57,17 +69,24 @@ export function useGrassCompute(
         uniforms: {
             uResolution: { value: new THREE.Vector2(GRID_SIZE, GRID_SIZE) },
             uPositions: { value: positionTexture },
-            bladeHeight: { value: bladeHeight },
-            bladeWidth: { value: bladeWidth },
-            bendAmount: { value: bendAmount },
-            clumpSize: { value: clumpSize },
-            clumpRadius: { value: clumpRadius },
-            uTime: { value: uTime },
-            uWindScale: { value: uWindScale },
-            uWindSpeed: { value: uWindSpeed },
-            uWindDir: { value: uWindDir },
+            bladeHeightMin: { value: config.bladeHeightMin },
+            bladeHeightMax: { value: config.bladeHeightMax },
+            bladeWidthMin: { value: config.bladeWidthMin },
+            bladeWidthMax: { value: config.bladeWidthMax },
+            bendAmountMin: { value: config.bendAmountMin },
+            bendAmountMax: { value: config.bendAmountMax },
+            clumpSize: { value: config.clumpSize },
+            clumpRadius: { value: config.clumpRadius },
+            uCenterYaw: { value: config.uCenterYaw },
+            uBladeYaw: { value: config.uBladeYaw },
+            uClumpYaw: { value: config.uClumpYaw },
+            uBladeRandomness: { value: config.uBladeRandomness },
+            uTime: { value: config.uTime },
+            uWindScale: { value: config.uWindScale },
+            uWindSpeed: { value: config.uWindSpeed },
+            uWindDir: { value: config.uWindDir },
         }
-    }), [positionTexture, bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius, uTime, uWindScale, uWindSpeed, uWindDir])
+    }), [positionTexture, config])
 
     // Create fullscreen quad for compute pass
     const computeScene = useMemo(() => {
@@ -93,16 +112,23 @@ export function useGrassCompute(
 
     // Update compute material uniforms when params change
     useEffect(() => {
-        grassComputeMat.uniforms.bladeHeight.value = bladeHeight
-        grassComputeMat.uniforms.bladeWidth.value = bladeWidth
-        grassComputeMat.uniforms.bendAmount.value = bendAmount
-        grassComputeMat.uniforms.clumpSize.value = clumpSize
-        grassComputeMat.uniforms.clumpRadius.value = clumpRadius
-        grassComputeMat.uniforms.uTime.value = uTime
-        grassComputeMat.uniforms.uWindScale.value = uWindScale
-        grassComputeMat.uniforms.uWindSpeed.value = uWindSpeed
-        grassComputeMat.uniforms.uWindDir.value = uWindDir
-    }, [bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius, uTime, uWindScale, uWindSpeed, uWindDir, grassComputeMat])
+        grassComputeMat.uniforms.bladeHeightMin.value = config.bladeHeightMin
+        grassComputeMat.uniforms.bladeHeightMax.value = config.bladeHeightMax
+        grassComputeMat.uniforms.bladeWidthMin.value = config.bladeWidthMin
+        grassComputeMat.uniforms.bladeWidthMax.value = config.bladeWidthMax
+        grassComputeMat.uniforms.bendAmountMin.value = config.bendAmountMin
+        grassComputeMat.uniforms.bendAmountMax.value = config.bendAmountMax
+        grassComputeMat.uniforms.clumpSize.value = config.clumpSize
+        grassComputeMat.uniforms.clumpRadius.value = config.clumpRadius
+        grassComputeMat.uniforms.uCenterYaw.value = config.uCenterYaw
+        grassComputeMat.uniforms.uBladeYaw.value = config.uBladeYaw
+        grassComputeMat.uniforms.uClumpYaw.value = config.uClumpYaw
+        grassComputeMat.uniforms.uBladeRandomness.value = config.uBladeRandomness
+        grassComputeMat.uniforms.uTime.value = config.uTime
+        grassComputeMat.uniforms.uWindScale.value = config.uWindScale
+        grassComputeMat.uniforms.uWindSpeed.value = config.uWindSpeed
+        grassComputeMat.uniforms.uWindDir.value = config.uWindDir
+    }, [config, grassComputeMat])
 
     return {
         bladeParamsRT,

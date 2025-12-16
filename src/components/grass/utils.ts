@@ -2,7 +2,7 @@
 // Utility Functions
 // ============================================================================
 import * as THREE from 'three'
-import { GRID_SIZE, GRASS_BLADES, PATCH_SIZE, BLADE_HEIGHT, BLADE_WIDTH, BLADE_SEGMENTS } from './constants'
+import { GRID_SIZE, GRASS_BLADES, PATCH_SIZE, BLADE_SEGMENTS } from './constants'
 
 // ============================================================================
 // Seeded Random Number Generator (for consistent position generation)
@@ -12,18 +12,15 @@ export function seededRandom(seed: number): number {
     return x - Math.floor(x);
 }
 
-// ============================================================================
-// Geometry Creation (simplified - only positions and instance IDs)
-// ============================================================================
 export function createGrassGeometry(): THREE.InstancedBufferGeometry {
     const bladeGeometry = new THREE.PlaneGeometry(
-        BLADE_WIDTH,
-        BLADE_HEIGHT,
+        1,
+        1,
         1,
         BLADE_SEGMENTS
     )
 
-    bladeGeometry.translate(0, BLADE_HEIGHT / 2, 0)
+    bladeGeometry.translate(0, 1 / 2, 0)
 
     const instancedGeometry = new THREE.InstancedBufferGeometry()
 
@@ -45,8 +42,7 @@ export function createGrassGeometry(): THREE.InstancedBufferGeometry {
             const fx = x / GRID_SIZE - 0.5;
             const fz = z / GRID_SIZE - 0.5;
 
-            // Use seeded random for consistency with position texture
-            const seed = (x * 7919 + z * 7919) * 0.0001; // Prime numbers for better distribution
+            const seed = (x * 7919 + z * 7919) * 0.0001;
             const jitterX = (seededRandom(seed) - 0.5) * 0.2;
             const jitterZ = (seededRandom(seed + 1.0) - 0.5) * 0.2;
 
@@ -67,9 +63,6 @@ export function createGrassGeometry(): THREE.InstancedBufferGeometry {
     return instancedGeometry
 }
 
-// ============================================================================
-// FBO Compute Setup
-// ============================================================================
 export function createPositionTexture(): THREE.DataTexture {
     const data = new Float32Array(GRID_SIZE * GRID_SIZE * 4)
     let idx = 0

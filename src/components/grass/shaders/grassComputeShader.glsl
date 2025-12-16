@@ -1,22 +1,44 @@
+// ============================================================================
+// Uniforms
+// ============================================================================
 uniform vec2 uResolution;
 uniform sampler2D uPositions; // instanceOffset positions
-uniform float bladeHeight;
-uniform float bladeWidth;
-uniform float bendAmount;
+uniform float bladeHeightMin;
+uniform float bladeHeightMax;
+uniform float bladeWidthMin;
+uniform float bladeWidthMax;
+uniform float bendAmountMin;
+uniform float bendAmountMax;
 uniform float clumpSize;
 uniform float clumpRadius;
+uniform float uCenterYaw;
+uniform float uBladeYaw;
+uniform float uClumpYaw;
+uniform vec3 uBladeRandomness; // (height, width, bend) randomness multiplier
+
 // Wind uniforms for compute pass
 uniform float uTime;
 uniform float uWindScale;
 uniform float uWindSpeed;
 uniform vec2 uWindDir; // Wind direction vector
 
-// Multiple render targets output declarations (WebGL2/GLSL ES 3.00)
-layout(location = 0) out vec4 outBladeParams; // bladeParams: height, width, bend, type
-layout(location = 1) out vec4 outClumpData; // clumpData: toCenter.x, toCenter.y, presence, baseAngle
-layout(location = 2) out vec4 outMotionSeeds; // MotionSeedsRT: facingAngle01, perBladeHash01, windStrength01, lodSeed01
 
-// Hash functions (matching CPU version exactly)
+// ============================================================================
+// Output Declarations (Multiple Render Targets - WebGL2/GLSL ES 3.00)
+// ============================================================================
+layout(location = 0) out vec4 outBladeParams;   // height, width, bend, type
+layout(location = 1) out vec4 outClumpData;     // toCenter.x, toCenter.y, presence, unused
+layout(location = 2) out vec4 outMotionSeeds;  // facingAngle01, perBladeHash01, windStrength01, lodSeed01
+
+// ============================================================================
+// Constants
+// ============================================================================
+#define PI 3.14159265359
+#define TWO_PI 6.28318530718
+
+// ============================================================================
+// Hash Functions (matching CPU version exactly)
+// ============================================================================
 float hash11(float x) {
   return fract(sin(x * 37.0) * 43758.5453123);
 }
@@ -33,15 +55,29 @@ vec2 hash2(vec2 p) {
   return fract(sin(vec2(x, y)) * 43758.5453);
 }
 
-// Safe normalize to avoid NaN when vector is zero
+// ============================================================================
+// Utility Functions
+// ============================================================================
 vec2 safeNormalize(vec2 v) {
   float m2 = dot(v, v);
   return (m2 > 1e-6) ? v * inversesqrt(m2) : vec2(1.0, 0.0);
 }
 
-// Note: simplexNoise3d and fbm2 are now included from fractal.glsl via useGrassCompute hook
+// Normalize angle to [-π, π] range
+float normalizeAngle(float angle) {
+  return atan(sin(angle), cos(angle));
+}
 
-// Voronoi clump calculation (matching CPU version exactly)
+// Normalize angle from [-π, π] to [0, 1] range
+float angleTo01(float angle) {
+  return (normalizeAngle(angle) + PI) / TWO_PI;
+}
+
+// Note: simplexNoise3d and fbm2 are included from fractal.glsl via useGrassCompute hook
+
+// ============================================================================
+// Voronoi Clump Calculation
+// ============================================================================
 // Returns: distToCenter, cellId.x, cellId.y
 vec3 getClumpInfo(vec2 worldXZ) {
   vec2 cell = worldXZ / clumpSize;
@@ -50,6 +86,7 @@ vec3 getClumpInfo(vec2 worldXZ) {
   float minDist = 1e9;
   vec2 bestCellId = vec2(0.0);
 
+  // Check 3x3 neighborhood to find closest Voronoi cell
   for (int j = -1; j <= 1; j++) {
     for (int i = -1; i <= 1; i++) {
       vec2 neighborCell = baseCell + vec2(float(i), float(j));
@@ -69,104 +106,135 @@ vec3 getClumpInfo(vec2 worldXZ) {
   return vec3(distToCenter, bestCellId.x, bestCellId.y);
 }
 
-vec4 getClumpParams(vec2 cellId) {
-  vec2 c1 = hash21(cellId * 11.0);
-  vec2 c2 = hash21(cellId * 23.0);
-
-  float clumpBaseHeight = bladeHeight * (0.8 + c1.x * 0.4); // mix(0.8, 1.2, c1.x)
-  float clumpBaseWidth = bladeWidth * (0.6 + c1.y * 0.8); // mix(0.6, 1.4, c1.y)
-  float clumpBaseBend = bendAmount * (0.7 + c2.x * 0.5); // mix(0.7, 1.2, c2.x)
-  float clumpType = floor(c2.y * 3.0);
-
-  return vec4(clumpBaseHeight, clumpBaseWidth, clumpBaseBend, clumpType);
-}
-
-vec4 getGrassParams(vec2 seed, vec4 clumpParams) {
-  vec2 h1 = hash21(seed * 13.0);
-  vec2 h2 = hash21(seed * 29.0);
-
-  float height = clumpParams.x * (0.6 + h1.x * 0.6); // mix(0.6, 1.2, h1.x)
-  float width = clumpParams.y * (0.6 + h1.y * 0.6); // mix(0.6, 1.2, h1.y)
-  float bend = clumpParams.z * (0.8 + h2.x * 0.4); // mix(0.8, 1.2, h2.x)
-  float type = clumpParams.w;
-
-  return vec4(height, width, bend, type);
-}
-
-void main() {
-  vec2 uv = gl_FragCoord.xy / uResolution;
-  vec4 posData = texture(uPositions, uv); // WebGL2: texture() instead of texture2D()
-  vec2 worldXZ = posData.xz;
-
-  // Voronoi clump calculation (matching CPU version exactly)
-  vec3 clumpInfo = getClumpInfo(worldXZ);
-  float distToCenter = clumpInfo.x;
-  vec2 cellId = clumpInfo.yz;
-  
-  // Calculate clump center world position
+// Calculate direction from blade position to clump center
+vec2 calculateToCenter(vec2 worldXZ, vec2 cellId) {
   vec2 clumpSeed = hash2(cellId);
   vec2 clumpCenterWorld = (cellId + clumpSeed) * clumpSize;
   
   vec2 dir = clumpCenterWorld - worldXZ;
   float len = length(dir);
-  vec2 toCenter = len > 1e-5 ? dir / len : vec2(1.0, 0.0);
-  
-  float r = clamp(distToCenter / clumpRadius, 0.0, 1.0);
-  // smoothstep(0.7, 1.0, r) = 1.0 - smoothstep(0.7, 1.0, r)
-  float t = clamp((r - 0.7) / (1.0 - 0.7), 0.0, 1.0);
-  float smoothstepVal = t * t * (3.0 - 2.0 * t);
-  float presence = 1.0 - smoothstepVal;
-  
-  vec4 clumpParams = getClumpParams(cellId);
-  vec4 bladeParams = getGrassParams(worldXZ, clumpParams);
-
-  // Calculate baseAngle (matching CPU version: Math.atan2(clumpDir[1], clumpDir[0]))
-  vec2 clumpDir = toCenter;
-  float clumpAngle = atan(clumpDir.y, clumpDir.x);
-  float perBladeHash = hash11(dot(worldXZ, vec2(37.0, 17.0)));
-  float perBladeHash01 = perBladeHash; // Already in [0, 1] range
-  float randomOffset = (perBladeHash - 0.5) * 1.2;
-  float clumpHash = hash11(dot(cellId, vec2(9.7, 3.1)));
-  float clumpYaw = (clumpHash - 0.5) * 0.25;
-  float baseAngle = clumpAngle + randomOffset + clumpYaw;
-  
-  // Calculate windStrength01: sample wind field using fbm2 with wind direction displacement
-  // 1) Normalize wind direction to avoid mixing wind speed with vector length
-  // Use safeNormalize to avoid NaN when uWindDir is zero vector
-  vec2 windDir = safeNormalize(uWindDir);
-  
-  // Push noise field along wind direction
-  vec2 windUv = worldXZ * uWindScale + windDir * uTime * uWindSpeed;
-  
-  // 3) Sample wind strength (0~1) and clamp to ensure valid range
-  float windStrength01 = fbm2(windUv, 0.0); // May not be exactly [0, 1] range
-  windStrength01 = clamp(windStrength01, 0.0, 1.0); // Clamp to [0, 1] for safety
-  
-  // Step 2: Bias baseAngle towards wind direction (Ghost-style wind-facing)
-  float windAngle = atan(windDir.y, windDir.x);
-  
-  // Wind influence strength (can be made uniform later)
-  float windFacing = 0.6; // Constant for now, can be made uniform later
-  
-  // Blend baseAngle towards windAngle (handle angle wrap)
-  float a = baseAngle;
-  float b = windAngle;
-  
-  // Angle difference wrapped to [-pi, pi]
-  float d = atan(sin(b - a), cos(b - a));
-  baseAngle = a + d * (windFacing * windStrength01);
-  
-  // Calculate facingAngle01: wrap baseAngle to [-π, π] first, then normalize to [0, 1]
-  // This is more stable than using fract directly, as baseAngle may exceed [-π, π] range
-  baseAngle = atan(sin(baseAngle), cos(baseAngle)); // Wrap to [-π, π]
-  float facingAngle01 = (baseAngle + 3.14159265359) / 6.28318530718; // Normalize [-π, π] to [0, 1]
-  
-  // Calculate lodSeed01: random seed for LOD culling
-  float lodSeed01 = hash11(dot(worldXZ, vec2(19.3, 53.7)));
-
-  // Multiple render targets: output to all textures in single pass
-  outBladeParams = bladeParams; // height, width, bend, type
-  outClumpData = vec4(toCenter.x, toCenter.y, presence, baseAngle); // toCenter.x, toCenter.y, presence, baseAngle
-  outMotionSeeds = vec4(facingAngle01, perBladeHash01, windStrength01, lodSeed01); // facingAngle01, perBladeHash01, windStrength01, lodSeed01
+  return len > 1e-5 ? dir / len : vec2(1.0, 0.0);
 }
 
+// Calculate presence (fade-out factor) based on distance from clump center
+float calculatePresence(float distToCenter) {
+  float r = clamp(distToCenter / clumpRadius, 0.0, 1.0);
+  float t = clamp((r - 0.7) / (1.0 - 0.7), 0.0, 1.0);
+  float smoothstepVal = t * t * (3.0 - 2.0 * t);
+  return 1.0 - smoothstepVal;
+}
+
+// ============================================================================
+// Parameter Generation
+// ============================================================================
+// Generate per-clump parameters (height, width, bend, type)
+vec4 getClumpParams(vec2 cellId) {
+  vec2 c1 = hash21(cellId * 11.0);
+  vec2 c2 = hash21(cellId * 23.0);
+
+  // Use dynamic min/max ranges directly
+  float clumpBaseHeight = mix(bladeHeightMin, bladeHeightMax, c1.x);
+  float clumpBaseWidth = mix(bladeWidthMin, bladeWidthMax, c1.y);
+  float clumpBaseBend = mix(bendAmountMin, bendAmountMax, c2.x);
+  float clumpType = floor(c2.y * 3.0);
+
+  return vec4(clumpBaseHeight, clumpBaseWidth, clumpBaseBend, clumpType);
+}
+
+// Generate per-blade parameters based on clump params
+vec4 getBladeParams(vec2 seed, vec4 clumpParams) {
+  vec2 h1 = hash21(seed * 13.0);
+  vec2 h2 = hash21(seed * 29.0);
+
+  float height = clumpParams.x * mix(1.0 - uBladeRandomness.x, 1.0 + uBladeRandomness.x, h1.x);
+  float width = clumpParams.y * mix(1.0 - uBladeRandomness.y, 1.0 + uBladeRandomness.y, h1.y);
+  float bend = clumpParams.z * mix(1.0 - uBladeRandomness.z, 1.0 + uBladeRandomness.z, h2.x);
+  float type = clumpParams.w;
+
+  return vec4(height, width, bend, type);
+}
+
+// ============================================================================
+// Angle Calculation
+// ============================================================================
+// Calculate base angle with clump and per-blade variations
+float calculateBaseAngle(vec2 toCenter, vec2 worldXZ, vec2 cellId) {
+  // Angle towards clump center
+  float clumpAngle = atan(toCenter.y, toCenter.x) * uCenterYaw;
+  
+  // Per-blade random offset
+  float perBladeHash01 = hash11(dot(worldXZ, vec2(37.0, 17.0)));
+  float randomOffset = (perBladeHash01 - 0.5) * uBladeYaw;
+  
+  // Per-clump yaw variation
+  float clumpHash = hash11(dot(cellId, vec2(9.7, 3.1)));
+  float clumpYaw = (clumpHash - 0.5) * uClumpYaw;
+  
+  return clumpAngle + randomOffset + clumpYaw;
+}
+
+// Blend angle towards wind direction (Ghost-style wind-facing)
+float applyWindFacing(float baseAngle, vec2 windDir, float windStrength01) {
+  const float windFacing = 0.6; // Wind influence strength
+  
+  float windAngle = atan(windDir.y, windDir.x);
+  
+  // Calculate angle difference wrapped to [-π, π]
+  float angleDiff = atan(sin(windAngle - baseAngle), cos(windAngle - baseAngle));
+  
+  // Blend based on wind strength
+  return baseAngle + angleDiff * (windFacing * windStrength01);
+}
+
+// ============================================================================
+// Wind Calculation
+// ============================================================================
+// Sample wind strength from noise field
+float calculateWindStrength(vec2 worldXZ) {
+  vec2 windDir = safeNormalize(uWindDir);
+  vec2 windUv = worldXZ * uWindScale + windDir * uTime * uWindSpeed;
+  
+  float windStrength01 = fbm2(windUv, 0.0);
+  return clamp(windStrength01, 0.0, 1.0);
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+void main() {
+  // 1. Get blade world position
+  vec2 uv = gl_FragCoord.xy / uResolution;
+  vec4 posData = texture(uPositions, uv);
+  vec2 worldXZ = posData.xz;
+
+  // 2. Calculate Voronoi clump information
+  vec3 clumpInfo = getClumpInfo(worldXZ);
+  float distToCenter = clumpInfo.x;
+  vec2 cellId = clumpInfo.yz;
+  
+  // 3. Calculate clump-related data
+  vec2 toCenter = calculateToCenter(worldXZ, cellId);
+  float presence = calculatePresence(distToCenter);
+  
+  // 4. Generate blade and clump parameters
+  vec4 clumpParams = getClumpParams(cellId);
+  vec4 bladeParams = getBladeParams(worldXZ, clumpParams);
+
+  // 5. Calculate blade facing angle
+  float baseAngle = calculateBaseAngle(toCenter, worldXZ, cellId);
+  
+  // 6. Apply wind effects
+  float windStrength01 = calculateWindStrength(worldXZ);
+  vec2 windDir = safeNormalize(uWindDir);
+  float facingAngle = applyWindFacing(baseAngle, windDir, windStrength01);
+  float facingAngle01 = angleTo01(facingAngle);
+  
+  // 7. Generate additional seeds
+  float perBladeHash01 = hash11(dot(worldXZ, vec2(37.0, 17.0)));
+  float lodSeed01 = hash11(dot(worldXZ, vec2(19.3, 53.7)));
+
+  // 8. Output to multiple render targets
+  outBladeParams = bladeParams;
+  outClumpData = vec4(toCenter.x, toCenter.y, presence, 0.0);
+  outMotionSeeds = vec4(facingAngle01, perBladeHash01, windStrength01, lodSeed01);
+}

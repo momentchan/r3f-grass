@@ -78,7 +78,7 @@ void main() {
   // color *= vPresence;
 
   csm_DiffuseColor = vec4(color, 1.0);
-  // csm_FragColor = vec4(color, 1.0);
+//   csm_FragColor = vec4(vTest, 1.0);
   // csm_FragColor = vec4(vHeight, 0.0, 0.0, 1.0);
 }
 

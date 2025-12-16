@@ -1,51 +1,59 @@
 import { useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three'
-import { useControls } from 'leva'
+import { useControls, folder } from 'leva'
 import { useFrame } from '@react-three/fiber'
 import CustomShaderMaterial from 'three-custom-shader-material'
 import CustomShaderMaterialVanilla from 'three-custom-shader-material/vanilla'
 import utility from '@packages/r3f-gist/shaders/cginc/math/utility.glsl'
 import fractal from '@packages/r3f-gist/shaders/cginc/noise/fractal.glsl'
-import { GRID_SIZE, GRASS_BLADES, BLADE_HEIGHT, BLADE_WIDTH } from './grass/constants'
+import { GRID_SIZE, GRASS_BLADES } from './grass/constants'
 import { createGrassGeometry } from './grass/utils'
 import { useGrassCompute } from './grass/hooks/useGrassCompute'
 import grassVertexShader from './grass/shaders/grassVertex.glsl?raw'
 import grassFragmentShader from './grass/shaders/grassFragment.glsl?raw'
 
-// ============================================================================
-// Vertex Shader (with includes)
-// ============================================================================
 const grassVertex = /* glsl */ `
   ${utility}
   ${fractal}
   ${grassVertexShader}
 `
-
-// ============================================================================
-// Fragment Shader
-// ============================================================================
 const grassFragment = grassFragmentShader
 
-// ============================================================================
-// Component
-// ============================================================================
 export default function Grass() {
-    const { bladeHeight, bladeWidth, bendAmount, clumpSize, clumpRadius, thicknessStrength, baseColor, tipColor } = useControls('Grass', {
-        bladeHeight: { value: BLADE_HEIGHT, min: 0.1, max: 2.0, step: 0.1 },
-        bladeWidth: { value: BLADE_WIDTH, min: 0.01, max: 0.1, step: 0.01 },
-        bendAmount: { value: 0.4, min: 0.0, max: 1.0, step: 0.1 },
-        clumpSize: { value: 0.8, min: 0.1, max: 5.0, step: 0.1 },
-        clumpRadius: { value: 1.5, min: 0.3, max: 2.0, step: 0.1 },
+
+    const [computeParams] = useControls('Grass.Compute', () => ({
+        Shape: folder({
+            bladeHeightMin: { value: 0.4, min: 0.1, max: 2.0, step: 0.1 },
+            bladeHeightMax: { value: 0.8, min: 0.1, max: 2.0, step: 0.1 },
+            bladeWidthMin: { value: 0.01, min: 0.01, max: 0.1, step: 0.001 },
+            bladeWidthMax: { value: 0.05, min: 0.01, max: 0.1, step: 0.001 },
+            bendAmountMin: { value: 0.2, min: 0.0, max: 1.0, step: 0.1 },
+            bendAmountMax: { value: 0.6, min: 0.0, max: 1.0, step: 0.1 },
+            bladeRandomness: { value: { x: 0.3, y: 0.3, z: 0.2 }, step: 0.01, min: 0.0, max: 1.0 },
+        }),
+        Clump: folder({
+            clumpSize: { value: 0.8, min: 0.1, max: 5.0, step: 0.1 },
+            clumpRadius: { value: 1.5, min: 0.3, max: 2.0, step: 0.1 },
+        }),
+        Angle: folder({
+            centerYaw: { value: 1.0, min: 0.0, max: 3.0, step: 0.1 },
+            bladeYaw: { value: 1.2, min: 0.0, max: 3.0, step: 0.1 },
+            clumpYaw: { value: 0.5, min: 0.0, max: 2.0, step: 0.1 },
+        }),
+    }))
+
+    // Vertex/Fragment shader parameters
+    const renderingParams = useControls('Grass.Rendering', {
         thicknessStrength: { value: 0.02, min: 0.0, max: 0.1, step: 0.001 },
-        tipColor: { value: '#3e8d2f', label: 'Tip Color' },
-        baseColor: { value: '#213110', label: 'Base Color' },
+        baseColor: { value: '#213110' },
+        tipColor: { value: '#3e8d2f' },
     })
 
     const geometry = useMemo(() => createGrassGeometry(), [])
 
     const materialRef = useRef<any>(null)
 
-    const materialControls = useControls('Material', {
+    const materialControls = useControls('Grass.Material', {
         roughness: { value: 0.3, min: 0.0, max: 1.0, step: 0.01 },
         metalness: { value: 0.5, min: 0.0, max: 1.0, step: 0.01 },
         emissive: { value: '#000000', label: 'Emissive Color' },
@@ -69,17 +77,31 @@ export default function Grass() {
         return dir
     }, [wind.dirX, wind.dirZ])
     
-    const { bladeParamsRT, clumpDataRT, additionalDataRT, computeMaterial, compute } = useGrassCompute(
-        bladeHeight,
-        bladeWidth,
-        bendAmount,
-        clumpSize,
-        clumpRadius,
-        0.0, // uTime initial value
-        wind.scale,
-        wind.speed,
-        windDirVec
-    )
+    const bladeRandomnessVec = useMemo(() => {
+        const r = computeParams.bladeRandomness as any
+        return new THREE.Vector3(r.x, r.y, r.z)
+    }, [computeParams.bladeRandomness])
+
+    const computeConfig = useMemo(() => ({
+        bladeHeightMin: computeParams.bladeHeightMin,
+        bladeHeightMax: computeParams.bladeHeightMax,
+        bladeWidthMin: computeParams.bladeWidthMin,
+        bladeWidthMax: computeParams.bladeWidthMax,
+        bendAmountMin: computeParams.bendAmountMin,
+        bendAmountMax: computeParams.bendAmountMax,
+        clumpSize: computeParams.clumpSize,
+        clumpRadius: computeParams.clumpRadius,
+        uCenterYaw: computeParams.centerYaw,
+        uBladeYaw: computeParams.bladeYaw,
+        uClumpYaw: computeParams.clumpYaw,
+        uBladeRandomness: bladeRandomnessVec,
+        uTime: 0.0, // Initial value, updated in useFrame
+        uWindScale: wind.scale,
+        uWindSpeed: wind.speed,
+        uWindDir: windDirVec,
+    }), [computeParams, bladeRandomnessVec, wind.scale, wind.speed, windDirVec])
+
+    const { bladeParamsRT, clumpDataRT, additionalDataRT, computeMaterial, compute } = useGrassCompute(computeConfig)
 
     const uniforms = useRef({
         thicknessStrength: { value: 0.02 },
@@ -122,13 +144,13 @@ export default function Grass() {
     }, [uniforms])
 
     useEffect(() => {
-        uniforms.thicknessStrength.value = thicknessStrength
+        uniforms.thicknessStrength.value = renderingParams.thicknessStrength
         
         // Convert Leva color (string or object) to Vector3
-        const baseColorVec = new THREE.Color(baseColor as any)
+        const baseColorVec = new THREE.Color(renderingParams.baseColor as any)
         uniforms.baseColor.value.set(baseColorVec.r, baseColorVec.g, baseColorVec.b)
         
-        const tipColorVec = new THREE.Color(tipColor as any)
+        const tipColorVec = new THREE.Color(renderingParams.tipColor as any)
         uniforms.tipColor.value.set(tipColorVec.r, tipColorVec.g, tipColorVec.b)
         
         // Update wind uniforms
@@ -137,14 +159,9 @@ export default function Grass() {
         uniforms.uWindDir.value.set(windDir.x, windDir.y)
         // Note: uWindSpeed is only updated in compute shader
         
-        // Update compute shader wind uniforms
-        computeMaterial.uniforms.uWindScale.value = wind.scale
-        computeMaterial.uniforms.uWindSpeed.value = wind.speed
-        computeMaterial.uniforms.uWindDir.value.set(windDir.x, windDir.y)
-        
         // Trigger shadow material to recompile when uniforms change
         depthMat.needsUpdate = true
-    }, [thicknessStrength, baseColor, tipColor, wind, depthMat, computeMaterial])
+    }, [renderingParams, wind, depthMat])
 
     // Update time every frame and execute compute pass
     useFrame((state) => {
