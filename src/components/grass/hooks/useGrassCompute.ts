@@ -29,6 +29,7 @@ export interface GrassComputeConfig {
     uWindScale: number
     uWindSpeed: number
     uWindDir: THREE.Vector2
+    uWindFacing: number
 }
 
 export function useGrassCompute(config: GrassComputeConfig) {
@@ -85,6 +86,7 @@ export function useGrassCompute(config: GrassComputeConfig) {
             uWindScale: { value: config.uWindScale },
             uWindSpeed: { value: config.uWindSpeed },
             uWindDir: { value: config.uWindDir },
+            uWindFacing: { value: config.uWindFacing },
         }
     }), [positionTexture, config])
 
@@ -128,6 +130,7 @@ export function useGrassCompute(config: GrassComputeConfig) {
         grassComputeMat.uniforms.uWindScale.value = config.uWindScale
         grassComputeMat.uniforms.uWindSpeed.value = config.uWindSpeed
         grassComputeMat.uniforms.uWindDir.value = config.uWindDir
+        grassComputeMat.uniforms.uWindFacing.value = config.uWindFacing
     }, [config, grassComputeMat])
 
     return {

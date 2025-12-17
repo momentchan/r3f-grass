@@ -1,3 +1,6 @@
+#define PI 3.14159265359
+#define TWO_PI 6.28318530718
+
 // ============================================================================
 // Uniforms
 // ============================================================================
@@ -17,6 +20,7 @@ uniform float uClumpYaw;
 uniform vec3 uBladeRandomness; // (height, width, bend) randomness multiplier
 
 // Wind uniforms for compute pass
+uniform float uWindFacing; // Wind influence strength (0.0 = no influence, 1.0 = full influence)
 uniform float uTime;
 uniform float uWindScale;
 uniform float uWindSpeed;
@@ -29,12 +33,6 @@ uniform vec2 uWindDir; // Wind direction vector
 layout(location = 0) out vec4 outBladeParams;   // height, width, bend, type
 layout(location = 1) out vec4 outClumpData;     // toCenter.x, toCenter.y, presence, unused
 layout(location = 2) out vec4 outMotionSeeds;  // facingAngle01, perBladeHash01, windStrength01, lodSeed01
-
-// ============================================================================
-// Constants
-// ============================================================================
-#define PI 3.14159265359
-#define TWO_PI 6.28318530718
 
 // ============================================================================
 // Hash Functions (matching CPU version exactly)
@@ -66,11 +64,6 @@ vec2 safeNormalize(vec2 v) {
 // Normalize angle to [-π, π] range
 float normalizeAngle(float angle) {
   return atan(sin(angle), cos(angle));
-}
-
-// Normalize angle from [-π, π] to [0, 1] range
-float angleTo01(float angle) {
-  return (normalizeAngle(angle) + PI) / TWO_PI;
 }
 
 // Note: simplexNoise3d and fbm2 are included from fractal.glsl via useGrassCompute hook
@@ -158,12 +151,11 @@ vec4 getBladeParams(vec2 seed, vec4 clumpParams) {
 // Angle Calculation
 // ============================================================================
 // Calculate base angle with clump and per-blade variations
-float calculateBaseAngle(vec2 toCenter, vec2 worldXZ, vec2 cellId) {
+float calculateBaseAngle(vec2 toCenter, vec2 worldXZ, vec2 cellId, float perBladeHash01) {
   // Angle towards clump center
   float clumpAngle = atan(toCenter.y, toCenter.x) * uCenterYaw;
   
   // Per-blade random offset
-  float perBladeHash01 = hash11(dot(worldXZ, vec2(37.0, 17.0)));
   float randomOffset = (perBladeHash01 - 0.5) * uBladeYaw;
   
   // Per-clump yaw variation
@@ -175,20 +167,21 @@ float calculateBaseAngle(vec2 toCenter, vec2 worldXZ, vec2 cellId) {
 
 // Blend angle towards wind direction (Ghost-style wind-facing)
 float applyWindFacing(float baseAngle, vec2 windDir, float windStrength01) {
-  const float windFacing = 0.6; // Wind influence strength
-  
   float windAngle = atan(windDir.y, windDir.x);
   
   // Calculate angle difference wrapped to [-π, π]
   float angleDiff = atan(sin(windAngle - baseAngle), cos(windAngle - baseAngle));
   
-  // Blend based on wind strength
-  return baseAngle + angleDiff * (windFacing * windStrength01);
+  // Blend based on wind strength and windFacing parameter
+  return baseAngle + angleDiff * (uWindFacing * windStrength01);
 }
 
-// ============================================================================
-// Wind Calculation
-// ============================================================================
+// Apply wind facing and normalize angle to [0, 1] range
+float applyWindFacingAndNormalize(float baseAngle, vec2 windDir, float windStrength01) {
+  float facingAngle = applyWindFacing(baseAngle, windDir, windStrength01);
+  return (normalizeAngle(facingAngle) + PI) / TWO_PI;
+}
+
 // Sample wind strength from noise field
 float calculateWindStrength(vec2 worldXZ) {
   vec2 windDir = safeNormalize(uWindDir);
@@ -220,18 +213,17 @@ void main() {
   vec4 clumpParams = getClumpParams(cellId);
   vec4 bladeParams = getBladeParams(worldXZ, clumpParams);
 
-  // 5. Calculate blade facing angle
-  float baseAngle = calculateBaseAngle(toCenter, worldXZ, cellId);
-  
-  // 6. Apply wind effects
-  float windStrength01 = calculateWindStrength(worldXZ);
-  vec2 windDir = safeNormalize(uWindDir);
-  float facingAngle = applyWindFacing(baseAngle, windDir, windStrength01);
-  float facingAngle01 = angleTo01(facingAngle);
-  
-  // 7. Generate additional seeds
+  // 5. Generate seeds (calculate once, reuse)
   float perBladeHash01 = hash11(dot(worldXZ, vec2(37.0, 17.0)));
   float lodSeed01 = hash11(dot(worldXZ, vec2(19.3, 53.7)));
+
+  // 6. Calculate blade facing angle
+  float baseAngle = calculateBaseAngle(toCenter, worldXZ, cellId, perBladeHash01);
+  
+  // 7. Apply wind effects
+  float windStrength01 = calculateWindStrength(worldXZ);
+  vec2 windDir = safeNormalize(uWindDir);
+  float facingAngle01 = applyWindFacingAndNormalize(baseAngle, windDir, windStrength01);
 
   // 8. Output to multiple render targets
   outBladeParams = bladeParams;
