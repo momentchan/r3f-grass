@@ -31,7 +31,7 @@ uniform vec2 uWindDir; // Wind direction vector
 // Output Declarations (Multiple Render Targets - WebGL2/GLSL ES 3.00)
 // ============================================================================
 layout(location = 0) out vec4 outBladeParams;   // height, width, bend, type
-layout(location = 1) out vec4 outClumpData;     // toCenter.x, toCenter.y, presence, unused
+layout(location = 1) out vec4 outClumpData;     // toCenter.x, toCenter.y, presence, clumpSeed01
 layout(location = 2) out vec4 outMotionSeeds;  // facingAngle01, perBladeHash01, windStrength01, lodSeed01
 
 // ============================================================================
@@ -216,6 +216,9 @@ void main() {
   // 5. Generate seeds (calculate once, reuse)
   float perBladeHash01 = hash11(dot(worldXZ, vec2(37.0, 17.0)));
   float lodSeed01 = hash11(dot(worldXZ, vec2(19.3, 53.7)));
+  
+  // Generate clump-level seed (fixed for entire clump, based on cellId)
+  float clumpSeed01 = hash11(dot(cellId, vec2(47.3, 61.7)));
 
   // 6. Calculate blade facing angle
   float baseAngle = calculateBaseAngle(toCenter, worldXZ, cellId, perBladeHash01);
@@ -227,6 +230,6 @@ void main() {
 
   // 8. Output to multiple render targets
   outBladeParams = bladeParams;
-  outClumpData = vec4(toCenter.x, toCenter.y, presence, 0.0);
+  outClumpData = vec4(toCenter.x, toCenter.y, presence, clumpSeed01);
   outMotionSeeds = vec4(facingAngle01, perBladeHash01, windStrength01, lodSeed01);
 }

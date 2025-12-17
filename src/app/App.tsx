@@ -13,43 +13,25 @@ function DirectionalLightHelper() {
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
     useHelper(directionalLightRef as React.MutableRefObject<THREE.Object3D>, THREE.DirectionalLightHelper, 1, 'red')
     
-    const { rotationSpeed, shadowMapSize, shadowCameraSize } = useControls('Directional Light', {
+    const { rotationSpeed, color, intensity } = useControls('Directional Light', {
         rotationSpeed: { value: 0.5, min: 0, max: 2, step: 0.1 },
-        shadowMapSize: { value: 2048, min: 512, max: 4096, step: 512 },
-        shadowCameraSize: { value: 10, min: 5, max: 20, step: 1 }
+        color: { value: '#ffffff' },
+        intensity: { value: 1.0, min: 0, max: 3, step: 0.1 },
     })
     
     const basePosition = useMemo(() => new THREE.Vector3(0, 2, 5), [])
     const position = useMemo(() => new THREE.Vector3(), [])
     
-    // Configure shadow quality settings
+    // Update light properties
     useEffect(() => {
         if (!directionalLightRef.current) return
         
         const light = directionalLightRef.current
-        const shadow = light.shadow
         
-        // Increase shadow map resolution
-        shadow.mapSize.width = shadowMapSize
-        shadow.mapSize.height = shadowMapSize
-        
-        // Configure shadow camera bounds for better coverage
-        const camera = shadow.camera as THREE.OrthographicCamera
-        camera.left = -shadowCameraSize
-        camera.right = shadowCameraSize
-        camera.top = shadowCameraSize
-        camera.bottom = -shadowCameraSize
-        camera.near = 0.1
-        camera.far = 50
-        
-        // Reduce shadow artifacts
-        shadow.bias = -0.0001
-        shadow.normalBias = 0.02
-        
-        // Update shadow camera
-        camera.updateProjectionMatrix()
-        shadow.needsUpdate = true
-    }, [shadowMapSize, shadowCameraSize])
+        // Update light color and intensity
+        light.color.set(color)
+        light.intensity = intensity
+    }, [color, intensity])
     
     useFrame((state) => {
         if (!directionalLightRef.current) return

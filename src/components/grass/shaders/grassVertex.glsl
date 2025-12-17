@@ -15,6 +15,8 @@ uniform vec2 uWindDir;
 uniform float uSwayFreqMin;
 uniform float uSwayFreqMax;
 uniform float uSwayStrength;
+uniform float uBaseWidth;
+uniform float uTipThin;
 
 // ============================================================================
 // Varyings
@@ -29,6 +31,8 @@ varying vec3 vTangent;
 varying vec3 vSide;
 varying vec2 vToCenter;
 varying vec3 vWorldPos;
+varying float vClumpSeed;
+varying float vBladeSeed;
 
 // ============================================================================
 // Utility Functions
@@ -111,6 +115,35 @@ void applyWindSway(
 }
 
 // ============================================================================
+// View-dependent Tilt Functions
+// ============================================================================
+vec3 applyViewDependentTilt(
+  vec3 posObj, vec3 posW,
+  vec3 tangent, vec3 side, vec3 normal,
+  vec2 uv, float t
+) {
+  vec3 camDirW = normalize(cameraPosition - posW);
+  
+  vec3 tangentW = normalize((modelMatrix * vec4(tangent, 0.0)).xyz);
+  vec3 sideW = normalize((modelMatrix * vec4(side, 0.0)).xyz);
+  vec3 normalW = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+  
+  mat3 toLocal = mat3(tangentW, sideW, normalW);
+  vec3 camDirLocal = normalize(transpose(toLocal) * camDirW);
+  
+  float edgeMask = (uv.x - 0.5) * camDirLocal.y;
+  edgeMask *= pow(abs(camDirLocal.y), 1.2);
+  edgeMask = clamp(edgeMask, 0.0, 1.0);
+  
+  float centerMask = pow(1.0 - t, 0.5) * pow(t + 0.05, 0.33);
+  centerMask = clamp(centerMask, 0.0, 1.0);
+  
+  float tilt = thicknessStrength * edgeMask * centerMask;
+  vec3 nXZ = normalize(normal * vec3(1.0, 0.0, 1.0));
+  return posObj + nXZ * tilt;
+}
+
+// ============================================================================
 // Blade Shape Functions
 // ============================================================================
 void getBezierControlPoints(float bladeType, float height, float bend, out vec3 p1, out vec3 p2) {
@@ -151,6 +184,7 @@ void main() {
   
   vec2 toCenter = clumpData.xy;
   float presence = clumpData.z;
+  float clumpSeed01 = clumpData.w;
   
   float facingAngle01 = motionSeeds.x;
   float perBladeHash01 = motionSeeds.y;
@@ -178,9 +212,7 @@ void main() {
   vec3 normal = normalize(cross(side, tangent));
 
   // 8. Blade Geometry
-  float baseWidth = 0.35;
-  float tipThin = 0.9;
-  float widthFactor = (t + baseWidth) * pow(1.0 - t, tipThin);
+  float widthFactor = (t + uBaseWidth) * pow(1.0 - t, uTipThin);
   vec3 lpos = spine + side * width * widthFactor * s * presence;
 
   // 9. Apply Rotation
@@ -197,25 +229,7 @@ void main() {
   vec3 posW = (modelMatrix * vec4(posObj, 1.0)).xyz;
 
   // 11. View-dependent Tilt
-  vec3 camDirW = normalize(cameraPosition - posW);
-  
-  vec3 tangentW = normalize((modelMatrix * vec4(tangent, 0.0)).xyz);
-  vec3 sideW = normalize((modelMatrix * vec4(side, 0.0)).xyz);
-  vec3 normalW = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-  
-  mat3 toLocal = mat3(tangentW, sideW, normalW);
-  vec3 camDirLocal = normalize(transpose(toLocal) * camDirW);
-  
-  float edgeMask = (uv.x - 0.5) * camDirLocal.y;
-  edgeMask *= pow(abs(camDirLocal.y), 1.2);
-  edgeMask = clamp(edgeMask, 0.0, 1.0);
-  
-  float centerMask = pow(1.0 - t, 0.5) * pow(t + 0.05, 0.33);
-  centerMask = clamp(centerMask, 0.0, 1.0);
-  
-  float tilt = thicknessStrength * edgeMask * centerMask;
-  vec3 nXZ = normalize(normal * vec3(1.0, 0.0, 1.0));
-  vec3 posObjTilted = posObj + nXZ * tilt;
+  vec3 posObjTilted = applyViewDependentTilt(posObj, posW, tangent, side, normal, uv, t);
   vec3 posWTilted = (modelMatrix * vec4(posObjTilted, 1.0)).xyz;
 
   // 12. Output
@@ -231,4 +245,6 @@ void main() {
   vHeight = t;
   vType = bladeType;
   vPresence = presence;
+  vClumpSeed = clumpSeed01;
+  vBladeSeed = perBladeHash01;
 }
