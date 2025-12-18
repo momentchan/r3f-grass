@@ -56,6 +56,12 @@ export default function Grass() {
     }, { collapsed: true }),
   }))
 
+  // LOD controls
+  const [lodControls] = useControls('Grass.LOD', () => ({
+    lodStart: { value: 5, min: 0, max: 50, step: 1 },
+    lodEnd: { value: 15, min: 0, max: 50, step: 1 },
+  }))
+
   // Vertex/Fragment shader parameters
   const [renderingParams] = useControls('Grass.Rendering', () => ({
     Geometry: folder({
@@ -77,7 +83,7 @@ export default function Grass() {
       bladeSeedRange: { value: { x: 0.95, y: 1.03 }, step: 0.01, min: 0.5, max: 1.5 },
       clumpInternalRange: { value: { x: 0.95, y: 1.05 }, step: 0.01, min: 0.5, max: 1.5 },
       clumpSeedRange: { value: { x: 0.9, y: 1.1 }, step: 0.01, min: 0.5, max: 1.5 },
-      aoPower: { value: 2, min: 0.1, max: 2.0, step: 0.1 },
+      aoPower: { value: 2, min: 0.1, max: 5.0, step: 0.1 },
     }, { collapsed: true }),
   }))
 
@@ -156,6 +162,7 @@ export default function Grass() {
     uSwayStrength: { value: 1.0 }, // Sway strength multiplier for wind animation
     uBaseWidth: { value: 0.35 }, // Base width factor for blade geometry
     uTipThin: { value: 0.9 }, // Tip thinning factor for blade geometry
+    uLODRange: { value: new THREE.Vector2(15, 40) }, // LOD range: x = start fold distance, y = full fold distance
     // Note: uWindSpeed is only used in compute shader for wind field translation
   }).current
 
@@ -228,11 +235,21 @@ export default function Grass() {
     depthMat.needsUpdate = true
   }, [renderingParams, computeParams, windDirVec, depthMat])
 
+  // Set envMap from scene
+  useEffect(() => {
+    if (materialRef.current && scene.environment) {
+      materialRef.current.envMap = scene.environment
+      materialRef.current.needsUpdate = true
+    }
+  }, [scene.environment])
+
   // Update time every frame and execute compute pass
   useFrame((state) => {
     uniforms.uTime.value = state.clock.elapsedTime
     // Update compute shader time uniform for wind field sampling
     computeMaterial.uniforms.uTime.value = state.clock.elapsedTime
+    // Update LOD range
+    uniforms.uLODRange.value.set(lodControls.lodStart, lodControls.lodEnd)
     compute() // Execute compute pass (single pass, multiple outputs)
     
     // Update light direction and color from scene

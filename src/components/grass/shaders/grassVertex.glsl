@@ -17,6 +17,7 @@ uniform float uSwayFreqMax;
 uniform float uSwayStrength;
 uniform float uBaseWidth;
 uniform float uTipThin;
+uniform vec2 uLODRange; // x: start fold distance, y: full fold distance
 
 // ============================================================================
 // Varyings
@@ -160,12 +161,46 @@ void getBezierControlPoints(float bladeType, float height, float bend, out vec3 
 }
 
 // ============================================================================
+// LOD Functions
+// ============================================================================
+// Calculate LOD-based position T for vertex folding
+// Returns the folded position T that should be used for geometry calculations
+// shapeT: Original smooth t (0.0 -> 1.0) from uv.y
+// instanceOffset: Instance position in object space
+float calculateLODPositionT(float shapeT, vec3 instanceOffset) {
+  // Calculate distance from instance to camera
+  vec3 worldBasePos = (modelMatrix * vec4(instanceOffset, 1.0)).xyz;
+  float dist = length(cameraPosition - worldBasePos);
+  
+  // Calculate LOD weight (0.0 = full detail, 1.0 = fully folded)
+  float lodWeight = smoothstep(uLODRange.x, uLODRange.y, dist);
+  
+  // Vertex folding logic for position calculation only
+  // BLADE_SEGMENTS = 14.0, so uv.y ranges from 0/14 to 14/14 (15 vertex rows)
+  float totalSegments = 14.0;
+  float vertexRow = floor(shapeT * totalSegments + 0.5);
+  
+  // When lodWeight approaches 1.0, we only keep even rows (0, 2, 4...)
+  // Odd rows (1, 3, 5...) are folded to even rows
+  float foldedRow = floor(vertexRow / 2.0) * 2.0;
+  
+  // Determine final position T for Bezier curve calculation (geometry only)
+  float positionT = mix(vertexRow, foldedRow, step(0.5, lodWeight)) / totalSegments;
+  
+  return positionT;
+}
+
+// ============================================================================
 // Main Vertex Shader
 // ============================================================================
 void main() {
-  // 1. UV Setup
-  float t = uv.y;
+  // 1. Separate "Shape T" (smooth, for appearance) and "Position T" (folded, for geometry)
+  // shapeT: Original smooth t (0.0 -> 1.0) for width, thickness, and visual properties
+  float shapeT = uv.y;
   float s = (uv.x - 0.5) * 2.0;
+  
+  // 2. Calculate LOD-based position T for vertex folding
+  float positionT = calculateLODPositionT(shapeT, instanceOffset);
 
   // 2. Texture Coordinates
   int ix = int(mod(instanceId, uGrassTextureSize.x));
@@ -198,21 +233,22 @@ void main() {
   vec3 p1, p2;
   getBezierControlPoints(bladeType, height, bend, p1, p2);
 
-  // 5. Apply Wind Effects
+  // 5. Apply Wind Effects (use positionT for wind calculations)
   applyWindPush(p1, p2, p3, windStrength01, height);
-  applyWindSway(p1, p2, p3, windStrength01, height, perBladeHash01, t, instanceOffset.xz);
+  applyWindSway(p1, p2, p3, windStrength01, height, perBladeHash01, positionT, instanceOffset.xz);
 
-  // 6. Calculate Spine and Tangent
-  vec3 spine = bezier3(p0, p1, p2, p3, t);
-  vec3 tangent = normalize(bezier3Tangent(p0, p1, p2, p3, t));
+  // 6. Calculate Spine and Tangent using positionT (for geometry position)
+  vec3 spine = bezier3(p0, p1, p2, p3, positionT);
+  vec3 tangent = normalize(bezier3Tangent(p0, p1, p2, p3, positionT));
 
   // 7. TBN Frame
   vec3 ref = vec3(0.0, 0.0, 1.0);
   vec3 side = normalize(cross(ref, tangent));
   vec3 normal = normalize(cross(side, tangent));
 
-  // 8. Blade Geometry
-  float widthFactor = (t + uBaseWidth) * pow(1.0 - t, uTipThin);
+  // 8. Blade Geometry - Use shapeT for width calculation (maintains smooth tapering)
+  // This ensures the tip always has width = 0, even when vertices are folded
+  float widthFactor = (shapeT + uBaseWidth) * pow(1.0 - shapeT, uTipThin);
   vec3 lpos = spine + side * width * widthFactor * s * presence;
 
   // 9. Apply Rotation
@@ -228,8 +264,8 @@ void main() {
   vec3 posObj = lpos + instanceOffset;
   vec3 posW = (modelMatrix * vec4(posObj, 1.0)).xyz;
 
-  // 11. View-dependent Tilt
-  vec3 posObjTilted = applyViewDependentTilt(posObj, posW, tangent, side, normal, uv, t);
+  // 11. View-dependent Tilt (use shapeT for tilt calculation to maintain smooth appearance)
+  vec3 posObjTilted = applyViewDependentTilt(posObj, posW, tangent, side, normal, uv, shapeT);
   vec3 posWTilted = (modelMatrix * vec4(posObjTilted, 1.0)).xyz;
 
   // 12. Output
@@ -242,7 +278,7 @@ void main() {
   vWorldPos = posWTilted;
   vTest = vec3(toCenter.x, toCenter.y, 0.0);
   vUv = uv;
-  vHeight = t;
+  vHeight = shapeT; // Use smooth shapeT for Fragment Shader to avoid visual artifacts
   vType = bladeType;
   vPresence = presence;
   vClumpSeed = clumpSeed01;

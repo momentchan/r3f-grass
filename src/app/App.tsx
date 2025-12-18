@@ -8,6 +8,7 @@ import { useControls } from "leva";
 import * as THREE from 'three'
 import { CustomShaderMaterial } from "@packages/r3f-gist/shaders/materials/CustomShaderMaterial";
 import Effects from "../components/Effects";
+import { Sky } from "@react-three/drei";
 
 function DirectionalLightHelper() {
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
@@ -104,6 +105,7 @@ export default function App() {
             <CameraControls makeDefault />
             <Environment preset="city" environmentIntensity={0.2} />
             <DirectionalLightHelper />
+            {/* <Sky /> */}
             {/* <BasicMesh /> */}
             <Grass />
             {/* <NormalSphere /> */}
