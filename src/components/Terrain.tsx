@@ -83,7 +83,7 @@ export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplit
       <planeGeometry args={[20, 20, 200, 200]} />
       <CustomShaderMaterial
         ref={materialRef}
-        baseMaterial={THREE.MeshBasicMaterial}
+        baseMaterial={THREE.MeshStandardMaterial}
         vertexShader={terrainVertex}
         fragmentShader={terrainFragment}
         uniforms={uniforms}

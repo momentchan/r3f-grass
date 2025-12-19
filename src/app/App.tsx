@@ -7,7 +7,7 @@ import { useState } from "react";
 import Effects from "../components/Effects";
 import { Terrain } from "../components/Terrain";
 import { DirectionalLight } from "../components/DirectionalLight";
-import { Sky } from "../components/Sky";
+import { Background } from "../components/background/Background";
 import * as THREE from 'three'
 
 export default function App() {
@@ -15,14 +15,14 @@ export default function App() {
     const [lightPosition, setLightPosition] = useState<THREE.Vector3 | undefined>(undefined)
 
     return <>
-        <LevaWrapper />
+        <LevaWrapper collapsed={true} />
 
         <Canvas
             shadows
             camera={{
                 fov: 45,
                 near: 0.1,
-                far: 30,
+                far: 50,
                 position: [0, 3, 10]
             }}
             gl={{ preserveDrawingBuffer: true }}
@@ -32,10 +32,10 @@ export default function App() {
             <color attach="background" args={['#000000']} />
             <AdaptiveDpr pixelated />
 
-            <CameraControls makeDefault />
+            <CameraControls makeDefault maxDistance={20} minDistance={5} maxPolarAngle={Math.PI / 2.2} minPolarAngle={Math.PI / 4} dollySpeed={0.5} />
             <Environment preset="city" environmentIntensity={0.2} />
             <DirectionalLight onPositionChange={setLightPosition} />
-            <Sky sunPosition={lightPosition} />
+            <Background sunPosition={lightPosition} />
             <Terrain onParamsChange={setTerrainParams} />
             <Grass terrainParams={terrainParams} />
             <CanvasCapture />

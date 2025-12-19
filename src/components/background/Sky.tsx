@@ -8,8 +8,7 @@ interface SkyProps {
 }
 
 export function Sky({ sunPosition: sunPositionProp }: SkyProps = {}) {
-  const skyParams = useControls('Sky', {
-    enabled: { value: false },
+  const skyParams = useControls('Background.Sky', {
     useLightPosition: { value: true, label: 'Use Light Position' },
     sunPositionX: { value: 0, min: -1, max: 1, step: 0.1 },
     sunPositionY: { value: 1, min: -1, max: 1, step: 0.1 },
@@ -21,7 +20,7 @@ export function Sky({ sunPosition: sunPositionProp }: SkyProps = {}) {
     inclination: { value: 0.49, min: 0, max: 1, step: 0.01 },
     azimuth: { value: 0.25, min: 0, max: 1, step: 0.01 },
     distance: { value: 100, min: 0, max: 1000, step: 10 }
-  }, { collapsed: true })
+  })
 
   const sunPosition = useMemo(() => {
     if (skyParams.useLightPosition && sunPositionProp) {
@@ -31,10 +30,6 @@ export function Sky({ sunPosition: sunPositionProp }: SkyProps = {}) {
     }
     return [skyParams.sunPositionX, skyParams.sunPositionY, skyParams.sunPositionZ] as [number, number, number]
   }, [skyParams.useLightPosition, skyParams.sunPositionX, skyParams.sunPositionY, skyParams.sunPositionZ, sunPositionProp])
-
-  if (!skyParams.enabled) {
-    return null
-  }
 
   return (
     <DreiSky
