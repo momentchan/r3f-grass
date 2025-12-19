@@ -35,8 +35,8 @@ interface GrassProps {
 
 // Color presets for tipColor
 const TIP_COLOR_PRESETS = [
-  '#4b4b4b', // Default gray
   '#3e8d2f', // Default green
+  '#4b4b4b', // Default gray
   '#8c502e', // Brown
   '#21546c', // Blue
   '#7c7c22', // Yellow
