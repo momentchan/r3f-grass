@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { useMemo, useEffect, useRef } from 'react'
 import { useControls } from 'leva'
 import CustomShaderMaterial from 'three-custom-shader-material'
-import { terrainMath } from './TerrainMath'
+import { terrainMath } from './terrain/TerrainMath'
 
 const terrainVertex = /* glsl */ `
   ${terrainMath}
@@ -33,7 +33,7 @@ const terrainFragment = /* glsl */ `
   }
 `
 
-export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplitude: number; frequency: number; seed: number }) => void }) {
+export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplitude: number; frequency: number; seed: number; color: string }) => void }) {
   const materialRef = useRef<any>(null)
 
   const terrainParams = useControls('Terrain', {
@@ -41,7 +41,7 @@ export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplit
     frequency: { value: 0.1, min: 0.01, max: 1.0, step: 0.1 },
     seed: { value: 0.0, min: 0.0, max: 100.0, step: 0.1 },
     color: { value: '#1a3310' }
-  })
+  }, { collapsed: true })
 
   // Notify parent of terrain params changes
   useEffect(() => {
@@ -49,7 +49,8 @@ export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplit
       onParamsChange({
         amplitude: terrainParams.amplitude,
         frequency: terrainParams.frequency,
-        seed: terrainParams.seed
+        seed: terrainParams.seed,
+        color: terrainParams.color
       })
     }
   }, [terrainParams, onParamsChange])
@@ -78,11 +79,11 @@ export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplit
 
   return (
     // High segment count is needed for smooth FBM terrain
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
+    <mesh rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[20, 20, 200, 200]} />
       <CustomShaderMaterial
         ref={materialRef}
-        baseMaterial={THREE.MeshStandardMaterial}
+        baseMaterial={THREE.MeshBasicMaterial}
         vertexShader={terrainVertex}
         fragmentShader={terrainFragment}
         uniforms={uniforms}

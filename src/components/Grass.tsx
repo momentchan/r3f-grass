@@ -11,7 +11,7 @@ import { createGrassGeometry } from './grass/utils'
 import { useGrassCompute } from './grass/hooks/useGrassCompute'
 import grassVertexShader from './grass/shaders/grassVertex.glsl?raw'
 import grassFragmentShader from './grass/shaders/grassFragment.glsl?raw'
-import { terrainMath } from './TerrainMath'
+import { terrainMath } from './terrain/TerrainMath'
 
 const grassVertex = /* glsl */ `
   ${utility}
@@ -29,13 +29,14 @@ interface GrassProps {
     amplitude: number
     frequency: number
     seed: number
+    color: string
   }
 }
 
 export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) {
   const { scene } = useThree()
 
-  const [geometryParams] = useControls('Grass', () => ({
+  const [grassParams] = useControls('Grass', () => ({
     Geometry: folder({
       Shape: folder({
         bladeHeightMin: { value: 0.4, min: 0.1, max: 2.0, step: 0.1 },
@@ -62,9 +63,8 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     }, { collapsed: true }),
     Appearance: folder({
       Color: folder({
-        baseColor: { value: '#213110' },
         tipColor: { value: '#3e8d2f' },
-        groundColor: { value: '#1a3310' },
+        baseColor: { value: '#213110' },
         bladeSeedRange: { value: { x: 0.95, y: 1.03 }, step: 0.01, min: 0.5, max: 1.5 },
         clumpInternalRange: { value: { x: 0.95, y: 1.05 }, step: 0.01, min: 0.5, max: 1.5 },
         clumpSeedRange: { value: { x: 0.9, y: 1.1 }, step: 0.01, min: 0.5, max: 1.5 },
@@ -111,7 +111,7 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
         compensation: { value: 1.5, min: 1.0, max: 3.0, step: 0.1 },
       }, { collapsed: true }),
     }, { collapsed: true }),
-  }))
+  }), { collapsed: true })
 
   const geometry = useMemo(() => createGrassGeometry(), [])
 
@@ -121,14 +121,13 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     roughness: { value: 0.3, min: 0.0, max: 1.0, step: 0.01 },
     metalness: { value: 0.5, min: 0.0, max: 1.0, step: 0.01 },
     emissive: { value: '#000000' },
-    emissiveIntensity: { value: 0.0, min: 0.0, max: 2.0, step: 0.1 },
-    envMapIntensity: { value: 1.0, min: 0.0, max: 3.0, step: 0.1 },
-  })
+    envMapIntensity: { value: 0.5, min: 0.0, max: 3.0, step: 0.1 },
+  }, { collapsed: true })
 
   const emissiveColor = useMemo(() => new THREE.Color(materialControls.emissive as any), [materialControls.emissive])
 
   // Use grass compute hook for Multiple Render Targets (before uniforms definition)
-  const params = geometryParams as any
+  const params = grassParams as any
   const bladeRandomnessVec = useMemo(() => {
     const r = params.bladeRandomness
     return new THREE.Vector3(r.x, r.y, r.z)
@@ -225,14 +224,11 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
       depthPacking: THREE.RGBADepthPacking,
     })
 
-    // Important: depthMat doesn't need DoubleSide unless you really want double-sided shadows
-    // m.side = THREE.DoubleSide;
-
     return m
   }, [uniforms])
 
   useEffect(() => {
-    const p = geometryParams as any
+    const p = grassParams as any
 
     // Update geometry uniforms
     uniforms.uGeometryThicknessStrength.value = p.thicknessStrength
@@ -251,7 +247,9 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     uniforms.uClumpSeedRange.value.set(p.clumpSeedRange.x, p.clumpSeedRange.y)
     uniforms.uAOPower.value = p.aoPower
 
-    const groundColorVec = new THREE.Color(p.groundColor)
+    // Use terrain color if available, otherwise use default
+    const groundColor = terrainParams?.color || '#1a3310'
+    const groundColorVec = new THREE.Color(groundColor)
     uniforms.uGroundColor.value.set(groundColorVec.r, groundColorVec.g, groundColorVec.b)
 
     uniforms.uNoiseParams.value.set(
@@ -288,7 +286,7 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
 
     // Trigger shadow material to recompile when uniforms change
     depthMat.needsUpdate = true
-  }, [geometryParams, windDirVec, depthMat, terrainParams])
+  }, [grassParams, windDirVec, depthMat, terrainParams])
 
   // Set envMap from scene
   useEffect(() => {
@@ -304,7 +302,7 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     // Update compute shader time uniform for wind field sampling
     computeMaterial.uniforms.uWindTime.value = state.clock.elapsedTime
     // Update LOD range
-    const p = geometryParams as any
+    const p = grassParams as any
     uniforms.uLODRange.value.set(p.lodStart, p.lodEnd)
     compute() // Execute compute pass (single pass, multiple outputs)
 
@@ -345,7 +343,6 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
         roughness={materialControls.roughness}
         metalness={materialControls.metalness}
         emissive={emissiveColor}
-        emissiveIntensity={materialControls.emissiveIntensity}
         envMapIntensity={materialControls.envMapIntensity}
       />
     </instancedMesh>
