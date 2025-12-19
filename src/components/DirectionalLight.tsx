@@ -20,7 +20,8 @@ export function DirectionalLight({ onPositionChange }: DirectionalLightProps = {
     }, { collapsed: true })
 
     const basePosition = useMemo(() => new THREE.Vector3(0, 5, 5), [])
-    const position = useMemo(() => new THREE.Vector3(), [])
+    const positionRef = useRef(new THREE.Vector3())
+    const rotationMatrixRef = useRef(new THREE.Matrix4())
 
     // Manage helper visibility
     useEffect(() => {
@@ -63,14 +64,14 @@ export function DirectionalLight({ onPositionChange }: DirectionalLightProps = {
         if (!directionalLightRef.current) return
 
         const rotationY = state.clock.elapsedTime * rotationSpeed
-        position.copy(basePosition)
-        const rotationMatrix = new THREE.Matrix4().makeRotationY(rotationY)
-        position.applyMatrix4(rotationMatrix)
-        directionalLightRef.current.position.copy(position)
+        positionRef.current.copy(basePosition)
+        rotationMatrixRef.current.makeRotationY(rotationY)
+        positionRef.current.applyMatrix4(rotationMatrixRef.current)
+        directionalLightRef.current.position.copy(positionRef.current)
         
-        // Notify parent of position change
+        // Notify parent of position change (only clone when callback exists)
         if (onPositionChange) {
-            onPositionChange(position.clone())
+            onPositionChange(positionRef.current.clone())
         }
         
         // Update helper if it exists

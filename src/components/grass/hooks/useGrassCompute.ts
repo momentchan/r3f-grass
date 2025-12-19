@@ -139,17 +139,22 @@ export function useGrassCompute(config: GrassComputeConfig) {
         grassComputeMat.uniforms.uWindStrength.value = config.uWindStrength
     }, [config, grassComputeMat])
 
-    return {
-        bladeParamsRT,
-        clumpDataRT,
-        additionalDataRT,
-        computeMaterial: grassComputeMat,
-        compute: () => {
+    // Memoize compute function to avoid recreating it every render
+    const compute = useMemo(() => {
+        return () => {
             const currentRenderTarget = gl.getRenderTarget()
             gl.setRenderTarget(mrt)
             gl.render(computeScene, computeCamera)
             gl.setRenderTarget(currentRenderTarget)
         }
+    }, [gl, mrt, computeScene, computeCamera])
+
+    return {
+        bladeParamsRT,
+        clumpDataRT,
+        additionalDataRT,
+        computeMaterial: grassComputeMat,
+        compute
     }
 }
 

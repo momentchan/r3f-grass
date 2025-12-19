@@ -9,6 +9,7 @@ import { Terrain } from "../components/Terrain";
 import { DirectionalLight } from "../components/DirectionalLight";
 import { Background } from "../components/background/Background";
 import * as THREE from 'three'
+import { Perf } from "r3f-perf";
 
 export default function App() {
     const [terrainParams, setTerrainParams] = useState<{ amplitude: number; frequency: number; seed: number; color: string } | undefined>(undefined)
@@ -29,6 +30,8 @@ export default function App() {
             dpr={[1, 2]}
             performance={{ min: 0.5, max: 1 }}
         >
+            {/* <Perf /> */}
+
             <color attach="background" args={['#000000']} />
             <AdaptiveDpr pixelated />
 

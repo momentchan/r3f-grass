@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useControls } from 'leva'
 import { Sky } from './Sky'
 import { ProceduralSphere } from './ProceduralSphere'
@@ -7,7 +8,7 @@ interface BackgroundProps {
   sunPosition?: THREE.Vector3
 }
 
-export function Background({ sunPosition }: BackgroundProps = {} as BackgroundProps) {
+export const Background = memo(function Background({ sunPosition }: BackgroundProps = {} as BackgroundProps) {
   const bgControl = useControls('Background', {
     type: { value: 'procedural', options: ['procedural', 'sky', 'none'] },
   }, { collapsed: true })
@@ -21,5 +22,5 @@ export function Background({ sunPosition }: BackgroundProps = {} as BackgroundPr
   }
 
   return null
-}
+})
 

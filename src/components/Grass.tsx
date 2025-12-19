@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three'
 import { useControls, folder } from 'leva'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -6,7 +6,7 @@ import CustomShaderMaterial from 'three-custom-shader-material'
 import CustomShaderMaterialVanilla from 'three-custom-shader-material/vanilla'
 import utility from '@packages/r3f-gist/shaders/cginc/math/utility.glsl'
 import simplexNoise from '@packages/r3f-gist/shaders/cginc/noise/simplexNoise.glsl'
-import { GRID_SIZE, GRASS_BLADES } from './grass/constants'
+import { GRID_SIZE, GRASS_BLADES, BLADE_SEGMENTS } from './grass/constants'
 import { createGrassGeometry } from './grass/utils'
 import { useGrassCompute } from './grass/hooks/useGrassCompute'
 import grassVertexShader from './grass/shaders/grassVertex.glsl?raw'
@@ -33,18 +33,28 @@ interface GrassProps {
   }
 }
 
+// Color presets for tipColor
+const TIP_COLOR_PRESETS = [
+  '#4b4b4b', // Default gray
+  '#3e8d2f', // Default green
+  '#8c502e', // Brown
+  '#21546c', // Blue
+  '#7c7c22', // Yellow
+]
+
 export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) {
   const { scene } = useThree()
+  const [presetIndex, setPresetIndex] = useState(0)
 
-  const [grassParams] = useControls('Grass', () => ({
+  const [grassParams, setGrassParams] = useControls('Grass', () => ({
     Geometry: folder({
       Shape: folder({
-        bladeHeightMin: { value: 0.4, min: 0.1, max: 2.0, step: 0.1 },
-        bladeHeightMax: { value: 0.8, min: 0.1, max: 2.0, step: 0.1 },
-        bladeWidthMin: { value: 0.01, min: 0.01, max: 0.1, step: 0.001 },
-        bladeWidthMax: { value: 0.05, min: 0.01, max: 0.1, step: 0.001 },
-        bendAmountMin: { value: 0.2, min: 0.0, max: 1.0, step: 0.1 },
-        bendAmountMax: { value: 0.6, min: 0.0, max: 1.0, step: 0.1 },
+        bladeHeightMin: { value: 0.4, min: 0.1, max: 2.0, step: 0.01 },
+        bladeHeightMax: { value: 0.8, min: 0.1, max: 2.0, step: 0.01 },
+        bladeWidthMin: { value: 0.01, min: 0.01, max: 0.2, step: 0.001 },
+        bladeWidthMax: { value: 0.05, min: 0.01, max: 0.2, step: 0.001 },
+        bendAmountMin: { value: 0.2, min: 0.0, max: 1.0, step: 0.01 },
+        bendAmountMax: { value: 0.6, min: 0.0, max: 1.0, step: 0.01 },
         bladeRandomness: { value: { x: 0.3, y: 0.3, z: 0.2 }, step: 0.01, min: 0.0, max: 1.0 },
         baseWidth: { value: 0.35, min: 0.0, max: 1.0, step: 0.01 },
         tipThin: { value: 0.9, min: 0.0, max: 2.0, step: 0.01 },
@@ -63,8 +73,8 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     }, { collapsed: true }),
     Appearance: folder({
       Color: folder({
-        tipColor: { value: '#3e8d2f' },
-        baseColor: { value: '#213110' },
+        tipColor: { value: TIP_COLOR_PRESETS[0] },
+        baseColor: { value: '#000000' },
         bladeSeedRange: { value: { x: 0.95, y: 1.03 }, step: 0.01, min: 0.5, max: 1.5 },
         clumpInternalRange: { value: { x: 0.95, y: 1.05 }, step: 0.01, min: 0.5, max: 1.5 },
         clumpSeedRange: { value: { x: 0.9, y: 1.1 }, step: 0.01, min: 0.5, max: 1.5 },
@@ -112,6 +122,35 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
       }, { collapsed: true }),
     }, { collapsed: true }),
   }), { collapsed: true })
+
+  // Keyboard handler for cycling color presets
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      // Check if 'C' key is pressed (case-insensitive)
+      if (event.key.toLowerCase() === 'c' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        // Only handle if not typing in an input field
+        const target = event.target as HTMLElement
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+          return
+        }
+        
+        event.preventDefault()
+        // Cycle to next preset (rounded)
+        setPresetIndex((prev) => (prev + 1) % TIP_COLOR_PRESETS.length)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress)
+    }
+  }, [])
+
+  // Update tipColor when preset changes
+  useEffect(() => {
+    const newColor = TIP_COLOR_PRESETS[presetIndex]
+    setGrassParams({ tipColor: newColor })
+  }, [presetIndex, setGrassParams])
 
   const geometry = useMemo(() => createGrassGeometry(), [])
 
@@ -162,6 +201,7 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
 
   const { bladeParamsRT, clumpDataRT, additionalDataRT, computeMaterial, compute } = useGrassCompute(computeConfig)
 
+  // Create uniform objects once and reuse them
   const uniforms = useRef({
     // Texture Uniforms
     uTextureBladeParams: { value: bladeParamsRT.texture },
@@ -172,6 +212,7 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     uGeometryThicknessStrength: { value: 0.02 },
     uGeometryBaseWidth: { value: 0.35 },
     uGeometryTipThin: { value: 0.9 },
+    uBladeSegments: { value: BLADE_SEGMENTS },
     // Wind Uniforms
     uWindTime: { value: 0 },
     uWindDir: { value: new THREE.Vector2(1, 0) },
@@ -211,7 +252,8 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     uniforms.uTextureBladeParams.value = bladeParamsRT.texture
     uniforms.uTextureClumpData.value = clumpDataRT.texture
     uniforms.uTextureMotionSeeds.value = additionalDataRT.texture
-  }, [bladeParamsRT.texture, clumpDataRT.texture, additionalDataRT.texture, uniforms])
+  }, [bladeParamsRT.texture, clumpDataRT.texture, additionalDataRT.texture])
+
 
   // Create depth material for directional/spot light shadows
   const depthMat = useMemo(() => {
@@ -227,6 +269,11 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     return m
   }, [uniforms])
 
+  // Reuse color objects to avoid allocation
+  const baseColorRef = useRef(new THREE.Color())
+  const tipColorRef = useRef(new THREE.Color())
+  const groundColorRef = useRef(new THREE.Color())
+
   useEffect(() => {
     const p = grassParams as any
 
@@ -235,12 +282,12 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     uniforms.uGeometryBaseWidth.value = p.baseWidth
     uniforms.uGeometryTipThin.value = p.tipThin
 
-    // Update color uniforms
-    const baseColorVec = new THREE.Color(p.baseColor)
-    uniforms.uBaseColor.value.set(baseColorVec.r, baseColorVec.g, baseColorVec.b)
+    // Update color uniforms (reuse color objects)
+    baseColorRef.current.set(p.baseColor)
+    uniforms.uBaseColor.value.set(baseColorRef.current.r, baseColorRef.current.g, baseColorRef.current.b)
 
-    const tipColorVec = new THREE.Color(p.tipColor)
-    uniforms.uTipColor.value.set(tipColorVec.r, tipColorVec.g, tipColorVec.b)
+    tipColorRef.current.set(p.tipColor)
+    uniforms.uTipColor.value.set(tipColorRef.current.r, tipColorRef.current.g, tipColorRef.current.b)
 
     uniforms.uBladeSeedRange.value.set(p.bladeSeedRange.x, p.bladeSeedRange.y)
     uniforms.uClumpInternalRange.value.set(p.clumpInternalRange.x, p.clumpInternalRange.y)
@@ -249,8 +296,8 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
 
     // Use terrain color if available, otherwise use default
     const groundColor = terrainParams?.color || '#1a3310'
-    const groundColorVec = new THREE.Color(groundColor)
-    uniforms.uGroundColor.value.set(groundColorVec.r, groundColorVec.g, groundColorVec.b)
+    groundColorRef.current.set(groundColor)
+    uniforms.uGroundColor.value.set(groundColorRef.current.r, groundColorRef.current.g, groundColorRef.current.b)
 
     uniforms.uNoiseParams.value.set(
       p.noiseFreqX,
@@ -296,31 +343,43 @@ export default function Grass({ terrainParams }: GrassProps = {} as GrassProps) 
     }
   }, [scene.environment])
 
+  // Cache light reference to avoid searching scene every frame
+  const lightRef = useRef<THREE.DirectionalLight | null>(null)
+  const lightPosRef = useRef(new THREE.Vector3())
+  const targetPosRef = useRef(new THREE.Vector3())
+  const lightDirRef = useRef(new THREE.Vector3())
+
+  // Find and cache light reference once
+  useEffect(() => {
+    const light = scene.children.find((child) => child.type === 'DirectionalLight') as THREE.DirectionalLight | undefined
+    if (light) {
+      lightRef.current = light
+    }
+  }, [scene])
+
   // Update time every frame and execute compute pass
   useFrame((state) => {
-    uniforms.uWindTime.value = state.clock.elapsedTime
+    const elapsedTime = state.clock.elapsedTime
+    uniforms.uWindTime.value = elapsedTime
     // Update compute shader time uniform for wind field sampling
-    computeMaterial.uniforms.uWindTime.value = state.clock.elapsedTime
+    computeMaterial.uniforms.uWindTime.value = elapsedTime
     // Update LOD range
     const p = grassParams as any
     uniforms.uLODRange.value.set(p.lodStart, p.lodEnd)
     compute() // Execute compute pass (single pass, multiple outputs)
 
-    // Update light direction and color from scene
-    const light = scene.children.find((child) => child.type === 'DirectionalLight') as THREE.DirectionalLight | undefined
+    // Update light direction and color from cached light reference
+    const light = lightRef.current
     if (light) {
-      // Get light direction: from light position to target position
-      const lightPos = new THREE.Vector3()
-      const targetPos = new THREE.Vector3()
-      light.getWorldPosition(lightPos)
-      light.target.getWorldPosition(targetPos)
+      // Reuse vector objects to avoid allocation
+      light.getWorldPosition(lightPosRef.current)
+      light.target.getWorldPosition(targetPosRef.current)
+      lightDirRef.current.subVectors(targetPosRef.current, lightPosRef.current).normalize()
+      uniforms.uLightDirection.value.copy(lightDirRef.current)
 
-      const lightDir = targetPos.sub(lightPos).normalize()
-      uniforms.uLightDirection.value.copy(lightDir)
-
-      // Get light color
-      const lightColor = new THREE.Color(light.color)
-      uniforms.uLightColor.value.set(lightColor.r, lightColor.g, lightColor.b)
+      // Update light color directly without creating new Color object
+      const color = light.color
+      uniforms.uLightColor.value.set(color.r, color.g, color.b)
     }
   })
 

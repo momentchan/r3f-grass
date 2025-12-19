@@ -14,6 +14,7 @@ uniform vec2 uTextureGrassSize;
 uniform float uGeometryThicknessStrength;
 uniform float uGeometryBaseWidth;
 uniform float uGeometryTipThin;
+uniform float uBladeSegments;
 
 // Wind Uniforms
 uniform float uWindTime;
@@ -185,8 +186,8 @@ float calculateLODPositionT(float shapeT, vec3 instanceOffset) {
   float lodWeight = smoothstep(uLODRange.x, uLODRange.y, dist);
   
   // Vertex folding logic for position calculation only
-  // BLADE_SEGMENTS = 14.0, so uv.y ranges from 0/14 to 14/14 (15 vertex rows)
-  float totalSegments = 14.0;
+  // uBladeSegments is set from BLADE_SEGMENTS constant, so uv.y ranges from 0/uBladeSegments to uBladeSegments/uBladeSegments
+  float totalSegments = uBladeSegments;
   float vertexRow = floor(shapeT * totalSegments + 0.5);
   
   // When lodWeight approaches 1.0, we only keep even rows (0, 2, 4...)

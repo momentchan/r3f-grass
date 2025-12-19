@@ -47,14 +47,15 @@ export function ProceduralSphere() {
   const materialRef = useRef<any>(null)
   
   const bgParams = useControls('Background.Procedural', {
-    enabled: { value: true },
-    color1: { value: '#13293b' },
-    color2: { value: '#010103' },
+    color1: { value: '#343638' },
+    color2: { value: '#000000' },
     intensity: { value: 1.0, min: 0, max: 2, step: 0.1 },
     speed: { value: 0.1, min: 0, max: 1, step: 0.01 },
     noiseScale: { value: { x: 0.05, y: 0.1, z: 0.05 }, step: 0.01, min: 0.01, max: 0.1 },
   })
 
+  const color1Ref = useRef(new THREE.Color())
+  const color2Ref = useRef(new THREE.Color())
   const uniforms = useMemo(() => ({
     uColor1: { value: new THREE.Color(bgParams.color1) },
     uColor2: { value: new THREE.Color(bgParams.color2) },
@@ -62,12 +63,14 @@ export function ProceduralSphere() {
     uTime: { value: 0.0 },
     uSpeed: { value: bgParams.speed },
     uNoiseScale: { value: new THREE.Vector3(bgParams.noiseScale.x, bgParams.noiseScale.y, bgParams.noiseScale.z) }
-  }), [])
+  }), [bgParams.color1, bgParams.color2, bgParams.intensity, bgParams.speed, bgParams.noiseScale.x, bgParams.noiseScale.y, bgParams.noiseScale.z])
 
-  // Update uniforms when params change
+  // Update uniforms when params change (most are handled by useMemo, only update what changes)
   useEffect(() => {
-    uniforms.uColor1.value.set(bgParams.color1)
-    uniforms.uColor2.value.set(bgParams.color2)
+    color1Ref.current.set(bgParams.color1)
+    uniforms.uColor1.value.set(color1Ref.current.r, color1Ref.current.g, color1Ref.current.b)
+    color2Ref.current.set(bgParams.color2)
+    uniforms.uColor2.value.set(color2Ref.current.r, color2Ref.current.g, color2Ref.current.b)
     uniforms.uIntensity.value = bgParams.intensity
     uniforms.uSpeed.value = bgParams.speed
     uniforms.uNoiseScale.value.set(bgParams.noiseScale.x, bgParams.noiseScale.y, bgParams.noiseScale.z)
@@ -82,9 +85,6 @@ export function ProceduralSphere() {
     uniforms.uTime.value = state.clock.elapsedTime
   })
 
-//   if (!bgParams.enabled) {
-//     return null
-//   }
 
   return (
     <mesh position={[0, 0, 0]} scale={30}>

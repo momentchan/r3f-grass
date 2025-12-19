@@ -3,6 +3,7 @@ import { useMemo, useEffect, useRef } from 'react'
 import { useControls } from 'leva'
 import CustomShaderMaterial from 'three-custom-shader-material'
 import { terrainMath } from './terrain/TerrainMath'
+import { PATCH_SIZE } from './grass/constants'
 
 const terrainVertex = /* glsl */ `
   ${terrainMath}
@@ -38,7 +39,7 @@ export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplit
 
   const terrainParams = useControls('Terrain', {
     amplitude: { value: 2.5, min: 0.1, max: 3.0, step: 0.1 },
-    frequency: { value: 0.1, min: 0.01, max: 1.0, step: 0.1 },
+    frequency: { value: 0.1, min: 0.01, max: .1, step: 0.01 },
     seed: { value: 0.0, min: 0.0, max: 100.0, step: 0.1 },
     color: { value: '#1a3310' }
   }, { collapsed: true })
@@ -55,32 +56,28 @@ export function Terrain({ onParamsChange }: { onParamsChange?: (params: { amplit
     }
   }, [terrainParams, onParamsChange])
 
+  const colorRef = useRef(new THREE.Color())
   const uniforms = useMemo(() => ({
     uColor: { value: new THREE.Color('#1a3310') },
     uTerrainAmp: { value: terrainParams.amplitude },
     uTerrainFreq: { value: terrainParams.frequency },
     uTerrainSeed: { value: terrainParams.seed }
-  }), [])
+  }), [terrainParams.amplitude, terrainParams.frequency, terrainParams.seed])
 
-  // Update uniforms when terrainParams change
+  // Update uniforms when terrainParams change (only color needs updating since others are in useMemo)
   useEffect(() => {
-    uniforms.uTerrainAmp.value = terrainParams.amplitude
-    uniforms.uTerrainFreq.value = terrainParams.frequency
-    uniforms.uTerrainSeed.value = terrainParams.seed
-    
-    // Update color
-    const colorVec = new THREE.Color(terrainParams.color)
-    uniforms.uColor.value.set(colorVec.r, colorVec.g, colorVec.b)
+    colorRef.current.set(terrainParams.color)
+    uniforms.uColor.value.set(colorRef.current.r, colorRef.current.g, colorRef.current.b)
     
     if (materialRef.current) {
       materialRef.current.needsUpdate = true
     }
-  }, [terrainParams, uniforms])
+  }, [terrainParams.color, uniforms])
 
   return (
     // High segment count is needed for smooth FBM terrain
     <mesh rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[20, 20, 200, 200]} />
+      <planeGeometry args={[PATCH_SIZE, PATCH_SIZE, 20, 20]} />
       <CustomShaderMaterial
         ref={materialRef}
         baseMaterial={THREE.MeshStandardMaterial}

@@ -1,4 +1,4 @@
-import { Bloom, DepthOfField, EffectComposer, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
+import { Bloom, DepthOfField, EffectComposer, SMAA, ToneMapping } from "@react-three/postprocessing";
 import { useRef, useMemo } from "react";
 import { useControls } from "leva";
 import * as THREE from "three";
@@ -16,7 +16,7 @@ export default function Effects() {
 
     const dofParams = useControls('Effects.Depth of Field', {
         enabled: { value: true, label: 'Enable Depth of Field' },
-        focusDistance: { value: 2, min: 0, max: 10, step: 0.01 },
+        focusDistance: { value: 4.5, min: 0, max: 10, step: 0.01 },
         bokehScale: { value: 2, min: 0, max: 10, step: 0.1 },
         focusRange: { value: 3, min: 0.01, max: 10, step: 0.01 },
     }, { collapsed: true });
@@ -40,7 +40,6 @@ export default function Effects() {
     }, { collapsed: true });
 
     const effects = useMemo(() => {
-
         const effectsList = [];
 
         if (smaaParams.enabled) {
@@ -71,8 +70,6 @@ export default function Effects() {
                 />
             );
         }
-
-
 
         if (toneMappingParams.enabled) {
             effectsList.push(
