@@ -4,6 +4,8 @@ A procedural 3D grass rendering demo built with React Three Fiber, featuring GPU
 
 This implementation is inspired by the procedural grass system featured in **Ghost of Tsushima**, which showcases GPU-based grass rendering techniques for creating realistic, dynamic grass fields. For more details on the original implementation, see the GDC talk: [Procedural Grass in 'Ghost of Tsushima'](https://gdcvault.com/play/1027033/Advanced-Graphics-Summit-Procedural-Grass) by Eric Wohllaib from Sucker Punch Productions.
 
+https://github.com/user-attachments/assets/283c42c2-a126-4e54-8be9-57bf9ab736a8
+
 ## Features
 
 - 🌱 **Procedural Grass Rendering**: GPU-computed grass blades with realistic wind animation and physics simulation
