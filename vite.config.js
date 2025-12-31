@@ -8,7 +8,6 @@ export default {
   resolve: {
     alias: {
       "@packages": resolve(__dirname, "packages"),
-      three: resolve(__dirname, "node_modules/three"),
     },
   },
   plugins: [react(), glsl(), basicSsl()],

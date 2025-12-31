@@ -10,6 +10,11 @@ import { DirectionalLight } from "../components/DirectionalLight";
 import { Background } from "../components/background/Background";
 import * as THREE from 'three'
 import { Perf } from "r3f-perf";
+import { WebGPURenderer } from "three/webgpu";
+import GrassWebGPU from "../components/GrassWebGPU";
+import { MeshBasicNodeMaterial } from "three/webgpu";
+import { extend } from "@react-three/fiber";
+extend({ MeshBasicNodeMaterial })
 
 export default function App() {
     const [terrainParams, setTerrainParams] = useState<{ amplitude: number; frequency: number; seed: number; color: string } | undefined>(undefined)
@@ -27,23 +32,37 @@ export default function App() {
                 far: 50,
                 position: [0, 3, 10]
             }}
-            gl={{ preserveDrawingBuffer: true }}
+            gl={(canvas) => {
+                const renderer = new WebGPURenderer({
+                  ...canvas as any,
+                  powerPreference: "high-performance",
+                  antialias: true,
+                  alpha: false,
+                  stencil: false,
+                });
+                return renderer.init().then(() => renderer);
+              }}
             dpr={[1, 2]}
             performance={{ min: 0.5, max: 1 }}
         >
             {/* <Perf /> */}
 
             <color attach="background" args={['#000000']} />
-            <AdaptiveDpr pixelated />
+            {/* <AdaptiveDpr pixelated /> */}
 
             <CameraControls makeDefault maxDistance={20} minDistance={5} maxPolarAngle={Math.PI / 2.2} minPolarAngle={Math.PI / 4} dollySpeed={0.5} />
-            <Environment preset="city" environmentIntensity={0.2} />
-            <DirectionalLight onPositionChange={setLightPosition} />
-            <Background sunPosition={lightPosition} />
-            <Terrain onParamsChange={setTerrainParams} patchSize={patchSize} />
-            <Grass terrainParams={terrainParams} patchSize={patchSize} onPatchSizeChange={setPatchSize} />
+            {/* <Environment preset="city" environmentIntensity={0.2} /> */}
+            {/* <DirectionalLight onPositionChange={setLightPosition} /> */}
+            {/* <Background sunPosition={lightPosition} /> */}
+            {/* <Terrain onParamsChange={setTerrainParams} patchSize={patchSize} /> */}
+            <GrassWebGPU />
+            {/* <Grass terrainParams={terrainParams} patchSize={patchSize} onPatchSizeChange={setPatchSize} /> */}
             <CanvasCapture />
-            <Effects />
+            {/* <mesh>
+                <planeGeometry args={[1, 1]} />
+                <meshBasicMaterial color="red" />
+            </mesh> */}
+            {/* <Effects /> */}
         </Canvas>
     </>
 }
