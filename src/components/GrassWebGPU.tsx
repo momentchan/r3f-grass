@@ -8,13 +8,14 @@ import simplexNoise from '@packages/r3f-gist/shaders/cginc/noise/simplexNoise.gl
 import { DEFAULT_GRID_SIZE, DEFAULT_PATCH_SIZE, BLADE_SEGMENTS, getGrassBladesCount } from './grass/constants'
 import { createGrassGeometry, seededRandom } from './grass/utils'
 import { useGrassCompute } from './grass/hooks/useGrassCompute'
+import { createGrassCompute } from './grass/compute/grassCompute'
 import grassVertexShader from './grass/shaders/grassVertex.glsl?raw'
 import grassFragmentShader from './grass/shaders/grassFragment.glsl?raw'
 import { terrainMath } from './terrain/TerrainMath'
 import * as THREE from 'three/webgpu';
 
-import { uniform, varying, vec4, add, sub, max, dot, sin, mat3, uint, negate, instancedArray, cameraProjectionMatrix, cameraViewMatrix, positionLocal, modelWorldMatrix, sqrt, float, Fn, If, cos, Loop, Continue, normalize, instanceIndex, length, vertexIndex } from 'three/tsl';
-import { MeshBasicNodeMaterial } from 'three/webgpu';
+import { uniform, varying, vec4, vec3, vec2, add, sub, mul, max, dot, sin, mat3, uint, negate, instancedArray, cameraProjectionMatrix, cameraViewMatrix, positionLocal, modelWorldMatrix, sqrt, float, Fn, If, cos, Loop, Continue, normalize, instanceIndex, length, vertexIndex, struct, fract, mix, clamp } from 'three/tsl';
+import { MeshBasicNodeMaterial, WebGPURenderer } from 'three/webgpu';
 
 
 interface GrassProps {
@@ -37,9 +38,31 @@ const TIP_COLOR_PRESETS = [
   '#7c7c22', // Yellow
 ]
 
+const grassStructure = struct({
+  // Blade parameters
+  bladeHeight: 'float',
+  bladeWidth: 'float',
+  bladeBend: 'float',
+  bladeType: 'float',
+
+  // Clump data
+  toCenter: 'vec2',
+  presence: 'float',
+  clumpSeed01: 'float',
+
+  // Motion seeds
+  facingAngle01: 'float',
+  perBladeHash01: 'float',
+  windStrength01: 'float',
+  lodSeed01: 'float',
+})
+
 export default function GrassWebGPU({ terrainParams, patchSize: initialPatchSize = DEFAULT_PATCH_SIZE, onPatchSizeChange }: GrassProps = {} as GrassProps) {
 
-  const { scene } = useThree()
+  const { gl, scene } = useThree()
+
+  const grassComputeRef = useRef<any>(null)
+  const computeUniformsRef = useRef<Record<string, any>>({})
 
   const [grassParams, setGrassParams] = useControls('Grass', () => ({
     Size: folder({
@@ -166,10 +189,51 @@ export default function GrassWebGPU({ terrainParams, patchSize: initialPatchSize
 
     const positions = instancedArray(positionArray, 'vec3')
 
+    // Calculate grass struct size: 4 floats + 1 vec2 (2 floats) + 2 floats + 4 floats = 12 floats = 48 bytes
+    const grassStructSize = 12
+    const grassDataArray = new Float32Array(grassBlades * grassStructSize)
+    // Initialize all values to 0
+    grassDataArray.fill(0)
+    const grassData = instancedArray(grassDataArray, grassStructure)
+
+    // Get params from grassParams for initial values
+    const params = grassParams as any
+    const { computeFn, uniforms } = createGrassCompute(grassData, positions, {
+      bladeHeightMin: params.bladeHeightMin,
+      bladeHeightMax: params.bladeHeightMax,
+      bladeWidthMin: params.bladeWidthMin,
+      bladeWidthMax: params.bladeWidthMax,
+      bendAmountMin: params.bendAmountMin,
+      bendAmountMax: params.bendAmountMax,
+      bladeRandomness: params.bladeRandomness,
+    })
+
+    const grassCompute = computeFn().compute(grassBlades)
+
+    // Store uniform references for later updates (like effectController in birds example)
+    computeUniformsRef.current = uniforms
+
+    grassComputeRef.current = grassCompute
+
+
+
     const grassVertex = Fn(() => {
+      const data = grassData.element(instanceIndex);
+
       const instancePos = positions.element(instanceIndex);
 
-      const position = positionLocal.add(instancePos);
+      const width = data.get('bladeWidth').toConst('bladeWidth');
+      const height = data.get('bladeHeight').toConst('bladeHeight');
+
+      // Scale positionLocal by width (x) and height (y)
+      const scaledPosition = vec3(
+        mul(positionLocal.x, width),
+        mul(positionLocal.y, height),
+        positionLocal.z
+      )
+      const position = scaledPosition.add(instancePos);
+
+
       return cameraProjectionMatrix.mul(cameraViewMatrix).mul(position)
     })
     material.vertexNode = grassVertex()
@@ -185,7 +249,36 @@ export default function GrassWebGPU({ terrainParams, patchSize: initialPatchSize
       material.dispose();
     }
 
-  }, [])
+  }, [gridSize, patchSize])
+
+  // Update compute uniforms when grassParams change (like birds example)
+  useEffect(() => {
+    if (!computeUniformsRef.current) return
+
+    const params = grassParams as any
+    const uniforms = computeUniformsRef.current
+
+    // Update uniform values from Leva controls - using .value property directly
+    uniforms.uBladeHeightMin.value = params.bladeHeightMin
+    uniforms.uBladeHeightMax.value = params.bladeHeightMax
+    uniforms.uBladeWidthMin.value = params.bladeWidthMin
+    uniforms.uBladeWidthMax.value = params.bladeWidthMax
+    uniforms.uBendAmountMin.value = params.bendAmountMin
+    uniforms.uBendAmountMax.value = params.bendAmountMax
+    uniforms.uBladeRandomness.value.set(
+      params.bladeRandomness.x,
+      params.bladeRandomness.y,
+      params.bladeRandomness.z
+    )
+  }, [grassParams])
+
+
+  useFrame(() => {
+    const renderer = gl as unknown as WebGPURenderer
+    if (!grassComputeRef.current) return
+
+    renderer.compute(grassComputeRef.current)
+  })
 
 
 
